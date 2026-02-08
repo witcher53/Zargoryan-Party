@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zargoryan Party - SA Edition</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="loginScreen">
+        <div id="loginBox">
+            <h1 style="color:white; margin-top:0;">Zargoryan Party</h1>
+            <input type="text" id="nicknameInput" placeholder="Nickini Yaz..." maxlength="12">
+            <br>
+            <button onclick="startGame()">OYNA</button>
+        </div>
+    </div>
+
+    <div id="saWarning" style="display:none; position:absolute; top:20%; left:50%; transform:translate(-50%, -50%); text-align:center; z-index:999;">
+        <h1 style="color:red; text-shadow: 2px 2px 0 #000; font-size:40px; background:rgba(0,0,0,0.8); padding:20px; border-radius:10px;">
+            🛑 DUR YOLCU! 🛑<br>
+            HAREKET ETMEK İÇİN CHAT'E "sa" YAZMALISIN!
+        </h1>
+    </div>
+
+    <button id="asButton" onclick="clickAsButton()" style="display:none; position:absolute; bottom:20px; left:20px; padding:15px 30px; font-size:20px; background:#2ecc71; color:white; border:none; border-radius:10px; cursor:pointer; box-shadow:0 0 10px white; z-index:1000;">
+        💬 AS DE (+50 Puan)
+    </button>
+
+    <div id="leaderboard">
+        <h3 style="margin:0 0 10px 0; border-bottom:1px solid #555;">Liderlik Tablosu 🏆</h3>
+        <div id="lb-content"></div>
+    </div>
+
+    <div id="chatLog"></div>
+
+    <div id="chatInputContainer">
+        <input type="text" id="chatInput" placeholder="Mesaj yaz... (Enter)">
+    </div>
+
+    <button id="rollDiceBtn" onclick="rollDice()">🎲 ZAR AT (D20)</button>
+
+    <canvas id="gameCanvas" tabindex="1" style="outline: none;"></canvas>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>
