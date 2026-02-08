@@ -11,13 +11,20 @@ const game = new Game();
 io.on('connection', (socket) => {
     console.log('Yeni savasci katildi:', socket.id);
 
-    // 1. OYUNA GİRİŞ
-    socket.on('joinGame', (nickname) => {
-        game.addPlayer(socket.id, nickname);
+    socket.on('joinGame', (data) => {
+        // data.bestScore client'tan geliyor
+        game.addPlayer(socket.id, data.nickname, data.bestScore);
         socket.emit('initDiamonds', game.diamonds);
     });
 
-    // 2. HAREKET
+    // PING
+    socket.on('pingCheck', (startTime) => {
+        socket.emit('pongCheck', startTime);
+    });
+    socket.on('updatePing', (ms) => {
+        if (game.players[socket.id]) game.players[socket.id].ping = ms;
+    });
+
     socket.on('playerMovement', (data) => {
         const result = game.movePlayer(socket.id, data);
         if (result && result.type === 'diamond') {
@@ -38,7 +45,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 3. ZAR ATMA
     socket.on('requestDiceRoll', () => {
         const result = game.playerRollDice(socket.id);
         if (result) {
@@ -51,20 +57,21 @@ io.on('connection', (socket) => {
         }
     });
 
-    // 4. SOHBET
     socket.on('chatMessage', (msg) => {
         io.emit('chatMessage', { id: socket.id, msg: msg });
     });
 
-    // --- YENİ: AS BUTONU ÖDÜLÜ ---
     socket.on('claimAsReward', () => {
         const player = game.players[socket.id];
         if (player) {
-            player.score += 50; // 50 Puan ekle
+            player.score += 50;
+            // Server tarafında rekor kontrolü
+            if (player.score > player.bestScore) {
+                player.bestScore = player.score;
+            }
         }
     });
 
-    // 5. ÇIKIŞ
     socket.on('disconnect', () => {
         game.removePlayer(socket.id);
     });

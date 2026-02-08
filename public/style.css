@@ -1,61 +1,96 @@
 body { margin: 0; background: #1a1a1a; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Segoe UI', sans-serif; }
 canvas { display: block; background: #252525; box-shadow: 0 0 50px rgba(0,0,0,0.5); border-radius: 4px; }
+
 #loginScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
 #loginBox { background: #333; padding: 40px; border-radius: 10px; text-align: center; border: 2px solid #555; box-shadow: 0 0 30px #000; }
 input { padding: 10px; font-size: 18px; border-radius: 5px; border: none; width: 200px; text-align: center; }
 button { padding: 10px 30px; font-size: 18px; margin-top: 20px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 5px; transition: 0.2s; }
 button:hover { background: #218838; transform: scale(1.05); }
-#leaderboard { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.5); color: white; padding: 10px; border-radius: 5px; pointer-events: none; width: 200px; }
-.player-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px; }
+
+/* SAĞ ÜST LİDERLİK TABLOSU */
+#leaderboard { 
+    position: absolute; top: 10px; right: 10px; 
+    background: rgba(0,0,0,0.7); /* Biraz daha koyu yaptım */
+    color: white; padding: 10px; border-radius: 8px; 
+    pointer-events: none; width: 220px; 
+    border: 1px solid #444;
+}
+.player-row { 
+    display: flex; justify-content: space-between; align-items: center; 
+    margin-bottom: 6px; font-size: 14px; 
+    border-bottom: 1px solid rgba(255,255,255,0.1); 
+    padding-bottom: 2px;
+}
 .score { font-weight: bold; color: gold; }
+.best-score { color: #aaa; font-size: 11px; margin-left: 5px; }
+
 #chatInputContainer { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; }
 #chatInput { padding: 10px; width: 300px; border-radius: 20px; border: 2px solid #444; background: rgba(0,0,0,0.8); color: white; outline: none; text-align: center; }
-/* Sağ Alt Chat Log */
-#chatLog {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    width: 280px;
-    height: 200px;
-    background: rgba(0, 0, 0, 0.5); /* Yarı saydam siyah */
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-    overflow-y: auto; /* Yazılar taşarsa scroll çubuğu çıksın */
-    font-family: 'Consolas', sans-serif;
-    font-size: 13px;
-    z-index: 5;
-    pointer-events: auto; /* Mouse ile kaydırabilsinler */
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
 
-/* Scroll çubuğunu biraz güzelleştirelim */
+#chatLog {
+    position: absolute; bottom: 10px; right: 10px; width: 280px; height: 200px;
+    background: rgba(0, 0, 0, 0.5); color: white; padding: 10px; border-radius: 5px;
+    overflow-y: auto; font-family: 'Consolas', sans-serif; font-size: 13px; z-index: 5;
+    pointer-events: auto; border: 1px solid rgba(255, 255, 255, 0.1);
+}
 #chatLog::-webkit-scrollbar { width: 5px; }
 #chatLog::-webkit-scrollbar-track { background: transparent; }
 #chatLog::-webkit-scrollbar-thumb { background: #888; border-radius: 5px; }
-#chatLog::-webkit-scrollbar-thumb:hover { background: #555; }
-/* ZAR ATMA BUTONU */
+
 #rollDiceBtn {
+    position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+    padding: 15px 30px; font-size: 24px; background: #e67e22; color: white;
+    border: 4px solid #d35400; border-radius: 10px; cursor: pointer;
+    display: none; font-weight: bold; box-shadow: 0 0 20px rgba(0,0,0,0.5); z-index: 1000;
+}
+
+/* GAMEPAD MENÜSÜ (HİZALI VE ŞIK) */
+#gamepadChatMenu {
+    display: none;
     position: absolute;
-    bottom: 100px; /* Chat'in biraz üstünde */
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 15px 30px;
-    font-size: 24px;
-    background: #e67e22; /* Turuncu */
-    color: white;
-    border: 4px solid #d35400;
+    bottom: 100px; left: 50%; transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.95);
+    border: 2px solid #444;
     border-radius: 10px;
-    cursor: pointer;
-    display: none; /* Başlangıçta gizli */
+    padding: 15px;
+    width: 250px; /* Sabit genişlik */
+    color: white;
+    font-family: 'Segoe UI', sans-serif;
+    z-index: 2000;
+    box-shadow: 0 0 20px rgba(0,0,0,0.8);
+}
+.gp-btn {
+    display: flex; /* Flexbox ile hizalama */
+    align-items: center; /* Dikey ortala */
+    margin: 8px 0;
+    font-size: 18px;
     font-weight: bold;
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
-    z-index: 1000;
+    background: rgba(255,255,255,0.05);
+    padding: 5px;
+    border-radius: 5px;
 }
-#rollDiceBtn:hover {
-    background: #d35400;
-    transform: translateX(-50%) scale(1.1);
+.btn-icon {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    margin-right: 15px; /* İkon ile yazı arası boşluk */
+    color: black;
+    font-weight: 900;
+    box-shadow: 0 0 5px rgba(255,255,255,0.5);
+    flex-shrink: 0; /* İkonun büzüşmesini engelle */
 }
-#rollDiceBtn:active {
-    transform: translateX(-50%) scale(0.95);
+
+/* OYUN İÇİ İPUÇLARI */
+#gpPrompts {
+    position: absolute; bottom: 180px; left: 50%; transform: translateX(-50%);
+    text-align: center; z-index: 1500; display: none;
+}
+.prompt-box {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: rgba(0,0,0,0.8); color: white;
+    padding: 10px 20px; border-radius: 50px;
+    border: 2px solid white; font-size: 20px; font-weight: bold;
+    margin-bottom: 10px; text-shadow: 0 0 5px black;
 }
