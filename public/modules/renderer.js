@@ -217,8 +217,9 @@ export function drawGame(ctx, canvas, socket) {
     }
 
     // Elmaslar (lokal)
-    if (cube.localDiamonds) {
-        cube.localDiamonds.forEach(d => {
+    // Elmaslar (lokal)
+    if (state.diamonds) {
+        state.diamonds.forEach(d => {
             ctx.fillStyle = d.color || '#00ffff';
             ctx.shadowBlur = (d.type === 'super') ? 15 : 5;
             ctx.shadowColor = d.color || '#00ffff';
