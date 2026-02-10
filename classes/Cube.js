@@ -5,10 +5,63 @@ class Cube {
         this.vx = 0;
         this.vy = 0;
         this.mass = 50;
-        this.size = 300;
+        this.size = 3000;    // DEV KÜP: Tüm oyun bu kutunun İÇİNDE
         this.angle = 0;
         this.angularVel = 0;
         this.friction = 0.985;
+
+        // --- LOCAL SPACE CHILD OBJECTS ---
+        // Çadır: Küpün merkezine göre sabit lokal koordinat
+        this.tent = {
+            localX: -400, localY: -400,
+            w: 500, h: 500,
+            color: '#e67e22', label: 'ZAR ALANI'
+        };
+
+        // Elmaslar: Lokal koordinatlarda
+        this.localDiamonds = [];
+    }
+
+    // --- LOCAL → WORLD DÖNÜŞÜM ---
+    // Formül: WorldPos = CubePos + Rotate(LocalPos, CubeAngle)
+    // | cos(θ)  -sin(θ) | * | lx |   +  | cx |
+    // | sin(θ)   cos(θ) |   | ly |      | cy |
+    localToWorld(localX, localY) {
+        const cos = Math.cos(this.angle);
+        const sin = Math.sin(this.angle);
+        return {
+            x: this.x + localX * cos - localY * sin,
+            y: this.y + localX * sin + localY * cos
+        };
+    }
+
+    // --- WORLD → LOCAL DÖNÜŞÜM ---
+    // Ters rotasyon: angle yerine -angle
+    worldToLocal(worldX, worldY) {
+        const cos = Math.cos(-this.angle);
+        const sin = Math.sin(-this.angle);
+        const dx = worldX - this.x;
+        const dy = worldY - this.y;
+        return {
+            x: dx * cos - dy * sin,
+            y: dx * sin + dy * cos
+        };
+    }
+
+    // Elmas spawn (lokal koordinatta)
+    spawnDiamond(type) {
+        const half = this.size / 2 - 100; // Kenardan 100px içeride
+        const d = {
+            id: Math.random().toString(36).substr(2, 9),
+            localX: (Math.random() - 0.5) * 2 * half,
+            localY: (Math.random() - 0.5) * 2 * half,
+            type: type,
+            color: (type === 'super') ? '#ff0000' : '#00ffff',
+            size: (type === 'super') ? 25 : 15,
+            points: (type === 'super') ? 50 : 10
+        };
+        this.localDiamonds.push(d);
+        return d;
     }
 
     update() {
@@ -37,7 +90,6 @@ class Cube {
         this.angle += this.angularVel;
     }
 
-    // Eğim kuvveti uygula
     applySlope(force) {
         this.vx += force.x / this.mass;
         this.vy += force.y / this.mass;
@@ -48,7 +100,9 @@ class Cube {
             x: this.x, y: this.y,
             vx: this.vx, vy: this.vy,
             size: this.size, mass: this.mass,
-            angle: this.angle, angularVel: this.angularVel
+            angle: this.angle, angularVel: this.angularVel,
+            tent: this.tent,
+            localDiamonds: this.localDiamonds
         };
     }
 }

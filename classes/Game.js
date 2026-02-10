@@ -4,37 +4,38 @@ const Cube = require('./Cube');
 const Chunk = require('./Chunk');
 
 const CHUNK_TYPES = ['straight', 'straight', 'straight', 'slope_down', 'slope_down', 'slope_up'];
-const CHUNK_BUFFER_AHEAD = 8;
-const CHUNK_BUFFER_BEHIND = 3;
 
 class Game {
     constructor() {
         this.players = {};
-        this.diamonds = [];
-        this.maxDiamonds = 60;
+        this.maxLocalDiamonds = 60;
         this.mapWidth = 2000;
         this.mapHeight = 2000;
 
-        // Çadır Alanı
-        this.tents = [
-            { id: 0, x: 0, y: 0, w: 400, h: 400, color: '#e67e22', label: "ZAR ALANI" }
-        ];
-
-        // Hamster Ball (Küp)
+        // Hamster Ball (Dev Küp — her şey bunun İÇİNDE)
         this.cube = new Cube();
 
         // Sonsuz Yol
         this.chunks = [];
         this.generateInitialChunks();
 
-        for (let i = 0; i < 30; i++) this.spawnDiamond('normal');
-        setInterval(() => { this.spawnDiamond('super'); }, 40000);
+        // Elmasları küpün İÇİNDE spawn et (lokal koordinat)
+        for (let i = 0; i < 30; i++) this.cube.spawnDiamond('normal');
+        setInterval(() => {
+            if (this.cube.localDiamonds.length < this.maxLocalDiamonds) {
+                this.cube.spawnDiamond('super');
+            }
+        }, 40000);
+
+        // Uyumluluk: eski diamonds array (artık kullanılmıyor ama getState'te lazım olabilir)
+        this.diamonds = [];
+        this.tents = [];
     }
 
     // --- CHUNK GENERATION ---
     generateInitialChunks() {
         let startX = 0;
-        const trackY = 1000; // Yolun Y merkezi
+        const trackY = 1000;
         for (let i = 0; i < 12; i++) {
             const type = (i < 2) ? 'straight' : CHUNK_TYPES[Math.floor(Math.random() * CHUNK_TYPES.length)];
             const chunk = new Chunk(startX, trackY, type);
@@ -52,15 +53,14 @@ class Game {
     }
 
     removeOldChunks() {
-        // Küpün arkasında kalan chunk'ları sil
-        while (this.chunks.length > 0 && this.chunks[0].x + this.chunks[0].length < this.cube.x - 1500) {
+        while (this.chunks.length > 0 && this.chunks[0].x + this.chunks[0].length < this.cube.x - 3000) {
             this.chunks.shift();
         }
     }
 
-    // --- CUBE PHYSICS (Her tick çağrılır) ---
+    // --- CUBE PHYSICS ---
     updateCubePhysics() {
-        // 1. Küpün üzerinde olduğu chunk'ı bul
+        // 1. Slope kuvveti
         for (const chunk of this.chunks) {
             if (chunk.contains(this.cube.x, this.cube.y)) {
                 this.cube.applySlope(chunk.slopeForce);
@@ -68,10 +68,10 @@ class Game {
             }
         }
 
-        // 2. Küp fiziğini güncelle
+        // 2. Küp fiziği
         this.cube.update();
 
-        // 3. Küpü yol içinde tut (Y ekseni sınırı)
+        // 3. Küpü yol içinde tut
         const currentChunk = this.getChunkAt(this.cube.x, this.cube.y);
         if (currentChunk) {
             const halfW = currentChunk.width / 2;
@@ -81,11 +81,11 @@ class Game {
             if (this.cube.y > maxY) { this.cube.y = maxY; this.cube.vy = -Math.abs(this.cube.vy) * 0.7; }
         }
 
-        // 4. Sonsuz yol: yeni chunk ekle, eskiyi sil
+        // 4. Sonsuz yol
         const lastChunk = this.chunks[this.chunks.length - 1];
-        while (this.cube.x > lastChunk.x - 2000) {
+        while (this.cube.x > lastChunk.x - 4000) {
             this.generateNextChunk();
-            if (this.chunks[this.chunks.length - 1].x > lastChunk.x + 5000) break;
+            if (this.chunks[this.chunks.length - 1].x > lastChunk.x + 10000) break;
         }
         this.removeOldChunks();
     }
@@ -97,11 +97,9 @@ class Game {
         return this.chunks.length > 0 ? this.chunks[0] : null;
     }
 
-    // --- PLAYER-CUBE COLLISION (Her tick çağrılır) ---
+    // --- PLAYER-CUBE İÇ DUVAR ÇARPIŞMASI ---
     updatePlayerCubeCollisions() {
         const half = this.cube.size / 2;
-        const cubeX = this.cube.x;
-        const cubeY = this.cube.y;
 
         for (let id in this.players) {
             const p = this.players[id];
@@ -110,105 +108,95 @@ class Game {
             const pSize = p.size || 20;
             const playerMass = Math.sqrt(pSize / 20);
 
-            // Oyuncunun küp içindeki relatif pozisyonu
-            const relX = p.x - cubeX;
-            const relY = p.y - cubeY;
+            const relX = p.x - this.cube.x;
+            const relY = p.y - this.cube.y;
 
-            // İç duvar sınırları
             const innerLimit = half - pSize;
             let hit = false;
             let forceX = 0, forceY = 0;
 
-            // Sol duvar
             if (relX < -innerLimit) {
-                forceX = (p.x - (cubeX - innerLimit)); // Negatif: sola itiyor
-                p.x = cubeX - innerLimit;
+                forceX = (p.x - (this.cube.x - innerLimit));
+                p.x = this.cube.x - innerLimit;
                 hit = true;
             }
-            // Sağ duvar
             if (relX > innerLimit) {
-                forceX = (p.x - (cubeX + innerLimit)); // Pozitif: sağa itiyor
-                p.x = cubeX + innerLimit;
+                forceX = (p.x - (this.cube.x + innerLimit));
+                p.x = this.cube.x + innerLimit;
                 hit = true;
             }
-            // Üst duvar
             if (relY < -innerLimit) {
-                forceY = (p.y - (cubeY - innerLimit));
-                p.y = cubeY - innerLimit;
+                forceY = (p.y - (this.cube.y - innerLimit));
+                p.y = this.cube.y - innerLimit;
                 hit = true;
             }
-            // Alt duvar
             if (relY > innerLimit) {
-                forceY = (p.y - (cubeY + innerLimit));
-                p.y = cubeY + innerLimit;
+                forceY = (p.y - (this.cube.y + innerLimit));
+                p.y = this.cube.y + innerLimit;
                 hit = true;
             }
 
             if (hit) {
-                // Momentum transfer: oyuncudan küpe
                 let multiplier = playerMass / this.cube.mass;
-
-                // TITAN MEKANİĞİ: Size > 190 ise kuvvet 10x
+                // TITAN: Size > 190 → kuvvet 10x
                 if (pSize > 190) multiplier *= 10;
-
-                // Oyuncunun hızından küpe kuvvet aktar
-                // forceX/Y negatifse oyuncu duvara doğru gidiyordu → küpü o yöne it
                 this.cube.vx += forceX * multiplier * 2;
                 this.cube.vy += forceY * multiplier * 2;
             }
         }
     }
 
-    // --- MEVCUT METODLAR (DEĞİŞMEDİ) ---
-    spawnDiamond(type) {
-        if (this.diamonds.length < this.maxDiamonds) {
-            this.diamonds.push(new Diamond(type));
-        }
-    }
+    // --- ELMAS ÇARPIŞMA (LOKAL UZAY → DÜNYA UZAYI MATEMATİĞİ) ---
+    // Formül: DiamondWorldPos = CubePos + Rotate(DiamondLocalPos, CubeAngle)
+    // Distance(PlayerWorldPos, DiamondWorldPos) < playerSize + diamondSize → TOPLA
+    checkLocalDiamondCollisions(player) {
+        const pSize = player.size || 20;
 
-    addPlayer(id, nickname, bestScore) {
-        const safeNick = (nickname && typeof nickname === 'string') ? nickname.substring(0, 15) : "Unknown";
-        const safeScore = (typeof bestScore === 'number' && !isNaN(bestScore)) ? bestScore : 0;
-        this.players[id] = new Player(id, safeNick, safeScore);
-        // Oyuncuyu küpün merkezinde spawn et
-        this.players[id].x = this.cube.x;
-        this.players[id].y = this.cube.y;
-    }
+        for (let i = this.cube.localDiamonds.length - 1; i >= 0; i--) {
+            const d = this.cube.localDiamonds[i];
 
-    removePlayer(id) {
-        if (this.players[id]) delete this.players[id];
-    }
+            // Elmasın dünya pozisyonunu hesapla
+            const worldPos = this.cube.localToWorld(d.localX, d.localY);
+            const distance = Math.sqrt(
+                Math.pow(player.x - worldPos.x, 2) +
+                Math.pow(player.y - worldPos.y, 2)
+            );
 
-    applyPenalty(id, amount) {
-        const player = this.players[id];
-        if (player && typeof player.score === 'number') {
-            player.score -= amount;
-            if (player.score < 0) player.score = 0;
-        }
-    }
+            if (distance < pSize + d.size) {
+                player.score += d.points;
+                if (player.score > player.bestScore) player.bestScore = player.score;
 
-    movePlayer(id, data) {
-        const player = this.players[id];
-        if (player) {
-            if (typeof data.x !== 'number' || isNaN(data.x) || typeof data.y !== 'number' || isNaN(data.y)) {
-                return null;
+                const type = d.type;
+                this.cube.localDiamonds.splice(i, 1);
+
+                // Normal elması yeniden spawn et
+                if (type === 'normal' && this.cube.localDiamonds.length < this.maxLocalDiamonds) {
+                    this.cube.spawnDiamond('normal');
+                }
+                return { type: 'diamond', subType: type, playerId: player.id };
             }
-
-            player.x = data.x;
-            player.y = data.y;
-
-            return this.checkCollisions(player);
         }
         return null;
     }
 
+    // --- ZAR ATMA (LOKAL ÇADIR POZİSYONU) ---
     playerRollDice(id) {
         const player = this.players[id];
         if (!player) return null;
 
-        const tent = this.tents[0];
-        if (player.x > tent.x && player.x < tent.x + tent.w &&
-            player.y > tent.y && player.y < tent.y + tent.h) {
+        // Çadırın dünya pozisyonunu hesapla
+        const tent = this.cube.tent;
+        const tentWorld = this.cube.localToWorld(tent.localX, tent.localY);
+        const tentWorldEnd = this.cube.localToWorld(tent.localX + tent.w, tent.localY + tent.h);
+
+        // Basit AABB: oyuncu çadır alanında mı?
+        const minX = Math.min(tentWorld.x, tentWorldEnd.x);
+        const maxX = Math.max(tentWorld.x, tentWorldEnd.x);
+        const minY = Math.min(tentWorld.y, tentWorldEnd.y);
+        const maxY = Math.max(tentWorld.y, tentWorldEnd.y);
+
+        if (player.x > minX && player.x < maxX &&
+            player.y > minY && player.y < maxY) {
 
             const now = Date.now();
             if (now - player.lastDiceTime > 5000) {
@@ -243,22 +231,38 @@ class Game {
         return null;
     }
 
-    checkCollisions(player) {
-        const pSize = player.size || 20;
+    // --- MEVCUT METODLAR ---
+    addPlayer(id, nickname, bestScore) {
+        const safeNick = (nickname && typeof nickname === 'string') ? nickname.substring(0, 15) : "Unknown";
+        const safeScore = (typeof bestScore === 'number' && !isNaN(bestScore)) ? bestScore : 0;
+        this.players[id] = new Player(id, safeNick, safeScore);
+        // Küpün merkezinde spawn
+        this.players[id].x = this.cube.x;
+        this.players[id].y = this.cube.y;
+    }
 
-        for (let i = this.diamonds.length - 1; i >= 0; i--) {
-            const d = this.diamonds[i];
-            const distance = Math.sqrt(Math.pow(player.x - d.x, 2) + Math.pow(player.y - d.y, 2));
+    removePlayer(id) {
+        if (this.players[id]) delete this.players[id];
+    }
 
-            if (distance < pSize + d.size) {
-                player.score += d.points;
-                if (player.score > player.bestScore) player.bestScore = player.score;
+    applyPenalty(id, amount) {
+        const player = this.players[id];
+        if (player && typeof player.score === 'number') {
+            player.score -= amount;
+            if (player.score < 0) player.score = 0;
+        }
+    }
 
-                const type = d.type;
-                this.diamonds.splice(i, 1);
-                if (type === 'normal') this.spawnDiamond('normal');
-                return { type: 'diamond', subType: type, playerId: player.id };
+    movePlayer(id, data) {
+        const player = this.players[id];
+        if (player) {
+            if (typeof data.x !== 'number' || isNaN(data.x) || typeof data.y !== 'number' || isNaN(data.y)) {
+                return null;
             }
+            player.x = data.x;
+            player.y = data.y;
+            // Elmas çarpışması lokal uzayda
+            return this.checkLocalDiamondCollisions(player);
         }
         return null;
     }
@@ -266,8 +270,8 @@ class Game {
     getState() {
         return {
             players: this.players,
-            diamonds: this.diamonds,
-            tents: this.tents,
+            diamonds: [],  // Eski uyumluluk (artık localDiamonds'ta)
+            tents: [],     // Eski uyumluluk (artık cube.tent'te)
             cube: this.cube.getState(),
             chunks: this.chunks.map(c => c.getState())
         };

@@ -97,11 +97,9 @@ function sendMessage(text) {
 }
 
 // --- SOCKET LISTENERS ---
-socket.on('initDiamonds', (d) => state.diamonds = d);
-socket.on('updateDiamonds', (serverDiamonds) => {
-    state.diamonds = serverDiamonds.filter(d => !state.collectedIds.includes(d.id));
-    state.collectedIds = state.collectedIds.filter(ghostId => serverDiamonds.some(sd => sd.id === ghostId));
-});
+// Elmaslar artık cube.localDiamonds'tan geliyor (state handler'da sync ediliyor)
+socket.on('initDiamonds', () => { }); // Uyumluluk: eski handler
+socket.on('updateDiamonds', () => { }); // Uyumluluk: eski handler
 
 socket.on('diceResult', (res) => {
     state.isRolling = false;
@@ -137,8 +135,17 @@ socket.on('chatMessage', (data) => {
 
 socket.on('state', (serverState) => {
     if (!serverState || !serverState.players) return;
-    state.tents = serverState.tents;
-    if (serverState.cube) state.cube = serverState.cube;
+    state.tents = serverState.tents || [];
+    if (serverState.cube) {
+        state.cube = serverState.cube;
+        // Elmasları cube.localDiamonds'tan al, collectedIds'e göre filtrele
+        if (serverState.cube.localDiamonds) {
+            state.diamonds = serverState.cube.localDiamonds.filter(d => !state.collectedIds.includes(d.id));
+            state.collectedIds = state.collectedIds.filter(ghostId =>
+                serverState.cube.localDiamonds.some(sd => sd.id === ghostId)
+            );
+        }
+    }
     if (serverState.chunks) state.chunks = serverState.chunks;
     const serverPlayers = serverState.players;
 
@@ -253,15 +260,27 @@ function gameLoop() {
         try { updatePhysics(socket, gp); } catch (e) { }
     }
 
-    // Performance için DOM cache kullanımı
-    if (state.tents[0]) {
-        const t = state.tents[0];
+    // Zar butonu: Çadır artık küpün lokal uzayında
+    if (state.cube && state.cube.tent) {
+        const tent = state.cube.tent;
+        const cube = state.cube;
+        const cos = Math.cos(cube.angle || 0);
+        const sin = Math.sin(cube.angle || 0);
+        // Çadırın 4 köşesinin world pozisyonunu hesapla
+        const wx = cube.x + tent.localX * cos - tent.localY * sin;
+        const wy = cube.y + tent.localX * sin + tent.localY * cos;
+        const wx2 = cube.x + (tent.localX + tent.w) * cos - (tent.localY + tent.h) * sin;
+        const wy2 = cube.y + (tent.localX + tent.w) * sin + (tent.localY + tent.h) * cos;
+        const minX = Math.min(wx, wx2); const maxX = Math.max(wx, wx2);
+        const minY = Math.min(wy, wy2); const maxY = Math.max(wy, wy2);
         const mp = state.myPlayer;
         const px = Number.isFinite(mp.x) ? mp.x : 0;
         const py = Number.isFinite(mp.y) ? mp.y : 0;
-        const inside = px > t.x && px < t.x + t.w && py > t.y && py < t.y + t.h;
+        const inside = px > minX && px < maxX && py > minY && py < maxY;
         const isCooldownOver = Date.now() > state.diceCooldown;
         DOM.rollDiceBtn.style.display = (inside && !state.showDice && !state.isRolling && isCooldownOver) ? 'block' : 'none';
+    } else {
+        DOM.rollDiceBtn.style.display = 'none';
     }
 
     try { drawGame(ctx, canvas, socket); } catch (e) {

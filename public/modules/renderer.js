@@ -45,17 +45,13 @@ function drawD20(ctx, x, y, size, color, val) {
 function drawChunks(ctx) {
     state.chunks.forEach(chunk => {
         const halfW = chunk.width / 2;
-
-        // Yol zemini
         ctx.fillStyle = chunk.color;
         ctx.fillRect(chunk.x, chunk.y - halfW, chunk.length, chunk.width);
 
-        // Yol kenar çizgileri
         ctx.strokeStyle = '#ffffff33';
         ctx.lineWidth = 3;
         ctx.strokeRect(chunk.x, chunk.y - halfW, chunk.length, chunk.width);
 
-        // Orta çizgi (kesikli)
         ctx.save();
         ctx.setLineDash([20, 20]);
         ctx.strokeStyle = '#ffffff15';
@@ -67,23 +63,19 @@ function drawChunks(ctx) {
         ctx.setLineDash([]);
         ctx.restore();
 
-        // Eğim okları
         if (chunk.type === 'slope_down') {
-            ctx.fillStyle = '#00ff0044';
             for (let i = 0; i < 5; i++) {
                 const ax = chunk.x + (i + 0.5) * (chunk.length / 5);
                 drawArrow(ctx, ax, chunk.y, 1, '#00ff0066');
             }
         }
         if (chunk.type === 'slope_up') {
-            ctx.fillStyle = '#ff000044';
             for (let i = 0; i < 5; i++) {
                 const ax = chunk.x + (i + 0.5) * (chunk.length / 5);
                 drawArrow(ctx, ax, chunk.y, -1, '#ff000066');
             }
         }
 
-        // Chunk label
         if (chunk.label) {
             ctx.fillStyle = '#ffffff88';
             ctx.font = 'bold 28px Arial';
@@ -105,70 +97,32 @@ function drawArrow(ctx, x, y, dir, color) {
     ctx.restore();
 }
 
-// --- KÜP (HAMSTER BALL) ÇİZİMİ ---
-function drawCube(ctx) {
-    const cube = state.cube;
-    if (!cube) return;
-
-    ctx.save();
-    ctx.translate(cube.x, cube.y);
-    ctx.rotate(cube.angle || 0);
-
-    const half = cube.size / 2;
-
-    // Dış kenar (kırmızı kare)
-    ctx.strokeStyle = '#e74c3c';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(-half, -half, cube.size, cube.size);
-
-    // İç parlak kenar
-    ctx.strokeStyle = '#ff6b6b44';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(-half + 10, -half + 10, cube.size - 20, cube.size - 20);
-
-    // Çapraz çizgiler (küp hissi)
-    ctx.strokeStyle = '#ffffff11';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-half, -half); ctx.lineTo(half, half);
-    ctx.moveTo(half, -half); ctx.lineTo(-half, half);
-    ctx.stroke();
-
-    // Köşe noktaları
-    const dotSize = 8;
-    ctx.fillStyle = '#e74c3c';
-    ctx.fillRect(-half - dotSize / 2, -half - dotSize / 2, dotSize, dotSize);
-    ctx.fillRect(half - dotSize / 2, -half - dotSize / 2, dotSize, dotSize);
-    ctx.fillRect(-half - dotSize / 2, half - dotSize / 2, dotSize, dotSize);
-    ctx.fillRect(half - dotSize / 2, half - dotSize / 2, dotSize, dotSize);
-
-    ctx.restore();
-}
-
 export function drawGame(ctx, canvas, socket) {
     const mp = state.myPlayer;
     const cube = state.cube;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     ctx.save();
 
-    // --- KAMERA: KÜP'Ü TAKİP ET ---
+    // === KAMERA: KÜP'Ü TAKİP ET ===
     const camX = (cube && Number.isFinite(cube.x)) ? cube.x : 1000;
     const camY = (cube && Number.isFinite(cube.y)) ? cube.y : 1000;
 
-    const zoom = 0.6; // Sabit zoom (ileride dinamik yapılabilir)
+    // Zoom: Küp 3000 birim, ekrana sığdırmak için 0.35
+    const zoom = Math.min(canvas.width, canvas.height) / (cube.size * 1.4);
     const offsetX = (canvas.width / 2) - (camX * zoom);
     const offsetY = (canvas.height / 2) - (camY * zoom);
     ctx.setTransform(zoom, 0, 0, zoom, offsetX, offsetY);
 
-    // --- ARKA PLAN GRID ---
+    // === ARKA PLAN GRID ===
     ctx.strokeStyle = 'rgba(255,255,255,0.03)';
     ctx.lineWidth = 1;
-    const gridStart = Math.floor((camX - canvas.width / zoom) / 200) * 200;
-    const gridEnd = camX + canvas.width / zoom;
-    const gridYStart = Math.floor((camY - canvas.height / zoom) / 200) * 200;
-    const gridYEnd = camY + canvas.height / zoom;
+    const viewW = canvas.width / zoom;
+    const viewH = canvas.height / zoom;
+    const gridStart = Math.floor((camX - viewW) / 200) * 200;
+    const gridEnd = camX + viewW;
+    const gridYStart = Math.floor((camY - viewH) / 200) * 200;
+    const gridYEnd = camY + viewH;
     for (let gx = gridStart; gx <= gridEnd; gx += 200) {
         ctx.beginPath(); ctx.moveTo(gx, gridYStart); ctx.lineTo(gx, gridYEnd); ctx.stroke();
     }
@@ -176,28 +130,79 @@ export function drawGame(ctx, canvas, socket) {
         ctx.beginPath(); ctx.moveTo(gridStart, gy); ctx.lineTo(gridEnd, gy); ctx.stroke();
     }
 
-    // --- CHUNK'LARI ÇİZ (Yol) ---
+    // === CHUNK'LARI ÇİZ ===
     drawChunks(ctx);
 
-    // --- ÇADIRLARI ÇİZ ---
-    state.tents.forEach(t => {
-        ctx.fillStyle = t.color; ctx.fillRect(t.x, t.y, t.w, t.h);
-        ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = "bold 40px Arial"; ctx.textAlign = "center"; ctx.fillText(t.label, t.x + t.w / 2, t.y - 20);
+    // ============================================
+    // === KÜP + CHILD OBJECTS (LOKAL UZAY) ===
+    // ============================================
+    // ctx.translate → küp merkezi, ctx.rotate → küp açısı
+    // Bu blokta çizilen her şey küple birlikte döner
+    ctx.save();
+    ctx.translate(camX, camY);
+    ctx.rotate(cube.angle || 0);
+
+    const half = cube.size / 2;
+
+    // --- KÜP KENARLARI ---
+    ctx.strokeStyle = '#e74c3c';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(-half, -half, cube.size, cube.size);
+
+    // İç parlak kenar
+    ctx.strokeStyle = '#ff6b6b33';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-half + 20, -half + 20, cube.size - 40, cube.size - 40);
+
+    // Çapraz çizgiler
+    ctx.strokeStyle = '#ffffff08';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-half, -half); ctx.lineTo(half, half);
+    ctx.moveTo(half, -half); ctx.lineTo(-half, half);
+    ctx.stroke();
+
+    // Köşe noktaları
+    const dotSize = 12;
+    ctx.fillStyle = '#e74c3c';
+    [[-half, -half], [half, -half], [-half, half], [half, half]].forEach(([cx, cy]) => {
+        ctx.fillRect(cx - dotSize / 2, cy - dotSize / 2, dotSize, dotSize);
     });
 
-    // --- ELMASLARI ÇİZ ---
-    state.diamonds.forEach(d => { ctx.fillStyle = d.color; ctx.fillRect(d.x - d.size / 2, d.y - d.size / 2, d.size, d.size); });
+    // --- ÇADIR (LOKAL KOORDİNATTA) ---
+    if (cube.tent) {
+        const t = cube.tent;
+        ctx.fillStyle = t.color || '#e67e22';
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(t.localX, t.localY, t.w, t.h);
+        ctx.globalAlpha = 1.0;
+        ctx.strokeStyle = '#ffffff66';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(t.localX, t.localY, t.w, t.h);
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.font = "bold 50px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(t.label || 'ZAR', t.localX + t.w / 2, t.localY + t.h / 2 + 15);
+    }
 
-    // --- KÜP'Ü ÇİZ ---
-    drawCube(ctx);
+    // --- ELMASLAR (LOKAL KOORDİNATTA) ---
+    if (cube.localDiamonds) {
+        cube.localDiamonds.forEach(d => {
+            ctx.fillStyle = d.color || '#00ffff';
+            ctx.shadowBlur = (d.type === 'super') ? 15 : 5;
+            ctx.shadowColor = d.color || '#00ffff';
+            ctx.fillRect(d.localX - d.size / 2, d.localY - d.size / 2, d.size, d.size);
+            ctx.shadowBlur = 0;
+        });
+    }
 
-    // --- MINIGAME ---
+    // --- MINIGAME ITEMS (LOKAL KOORDİNATTA) ---
     if (state.minigame.active) {
         state.minigame.obstacles.forEach(obs => {
             if (!obs.hit) {
                 const img = obsImages[obs.imgIndex] || obsImages[0];
                 ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "red";
-                obs.w = drawScaledImage(ctx, img, obs.x, obs.y, obs.h);
+                obs.w = drawScaledImage(ctx, img, obs.localX || obs.x, obs.localY || obs.y, obs.h);
                 ctx.restore();
             }
         });
@@ -205,22 +210,26 @@ export function drawGame(ctx, canvas, socket) {
             if (!col.collected) {
                 const img = colImages[col.imgIndex] || colImages[0];
                 ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "#00ff00";
-                col.w = drawScaledImage(ctx, img, col.x, col.y, col.h);
+                col.w = drawScaledImage(ctx, img, col.localX || col.x, col.localY || col.y, col.h);
                 ctx.restore();
             }
         });
     }
 
-    // --- FLOATING TEXTS ---
+    ctx.restore(); // ← Küp lokal uzayından çık
+
+    // ============================================
+    // === OYUNCULAR (DÜNYA UZAYI — DÖNMEZ) ===
+    // ============================================
+    const safeX = (Number.isFinite(mp.x)) ? mp.x : 1000;
+    const safeY = (Number.isFinite(mp.y)) ? mp.y : 1000;
+
+    // Floating texts (world space)
     for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
         let ft = state.floatingTexts[i];
         ctx.fillStyle = ft.color; ctx.font = "bold 24px Arial"; ctx.textAlign = "center"; ctx.fillText(ft.text, ft.x, ft.y);
         ft.y -= 2; ft.life--; if (ft.life <= 0) state.floatingTexts.splice(i, 1);
     }
-
-    // --- OYUNCULARI ÇİZ ---
-    const safeX = (Number.isFinite(mp.x)) ? mp.x : 1000;
-    const safeY = (Number.isFinite(mp.y)) ? mp.y : 1000;
 
     for (let id in state.players) {
         let p = state.players[id];
@@ -283,9 +292,9 @@ export function drawGame(ctx, canvas, socket) {
         }
         ctx.restore();
     }
-    ctx.restore();
+    ctx.restore(); // ← Kamera transform'dan çık
 
-    // === HUD (Zoom'dan etkilenmez) ===
+    // === HUD (Ekran uzayı — zoom'dan etkilenmez) ===
     if (mp.playing) {
         const speedVal = Math.sqrt(mp.vx * mp.vx + mp.vy * mp.vy).toFixed(0);
 
@@ -301,7 +310,6 @@ export function drawGame(ctx, canvas, socket) {
         const comboColor = mp.momentum > 2.0 ? `hsl(${Date.now() % 360}, 100%, 70%)` : "orange";
         ctx.fillStyle = comboColor; ctx.font = "bold 24px Arial"; ctx.fillText(`KOMBO: x${mp.momentum.toFixed(2)}`, 25, 110);
 
-        // Küp hız göstergesi
         if (cube) {
             const cubeSpeed = Math.sqrt((cube.vx || 0) ** 2 + (cube.vy || 0) ** 2).toFixed(1);
             ctx.fillStyle = '#e74c3c'; ctx.font = "bold 18px Arial";
