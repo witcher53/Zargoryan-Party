@@ -2,8 +2,43 @@ const Player = require('./Player');
 const Diamond = require('./Diamond');
 const Cube = require('./Cube');
 const Chunk = require('./Chunk');
+const { CHUNK_TYPES } = require('./Chunk');
 
-const CHUNK_TYPES = ['straight', 'straight', 'straight', 'slope_down', 'slope_down', 'slope_up'];
+// --- KUVVET HİYERARŞİSİ ---
+function getPlayerForce(size) {
+    if (size >= 800) return 500;  // Titan
+    if (size >= 200) return 50;   // Mega Hulk
+    if (size >= 100) return 10;   // Hulk
+    return 1;                     // Normal
+}
+
+// --- VEKTÖR MATEMATİK ---
+function dot(ax, ay, bx, by) { return ax * bx + ay * by; }
+function len(x, y) { return Math.sqrt(x * x + y * y); }
+
+// En yakın nokta: Nokta P'den AB doğru parçasına
+function closestPointOnSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax, aby = by - ay;
+    const apx = px - ax, apy = py - ay;
+    const abLenSq = abx * abx + aby * aby;
+    if (abLenSq === 0) return { x: ax, y: ay, t: 0 };
+    let t = dot(apx, apy, abx, aby) / abLenSq;
+    t = Math.max(0, Math.min(1, t));
+    return { x: ax + t * abx, y: ay + t * aby, t };
+}
+
+// Doğru parçasının normal vektörü (yukarı bakan)
+function segmentNormal(ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const l = len(dx, dy);
+    if (l === 0) return { x: 0, y: -1 };
+    // Normal: (-dy, dx) normalized — "sola" bakan normal
+    // Zemin segmentlerinde "yukarı" normalin -y olmasını istiyoruz
+    let nx = -dy / l, ny = dx / l;
+    // Normalin yukarı bakmasını garanti et
+    if (ny > 0) { nx = -nx; ny = -ny; }
+    return { x: nx, y: ny };
+}
 
 class Game {
     constructor() {
@@ -12,14 +47,14 @@ class Game {
         this.mapWidth = 2000;
         this.mapHeight = 2000;
 
-        // Hamster Ball (Dev Küp — her şey bunun İÇİNDE)
+        // Hamster Ball
         this.cube = new Cube();
 
-        // Sonsuz Yol
+        // Sonsuz Yol — Vektör Terrain
         this.chunks = [];
         this.generateInitialChunks();
 
-        // Elmasları küpün İÇİNDE spawn et (lokal koordinat)
+        // Elmaslar küpün İÇİNDE
         for (let i = 0; i < 30; i++) this.cube.spawnDiamond('normal');
         setInterval(() => {
             if (this.cube.localDiamonds.length < this.maxLocalDiamonds) {
@@ -27,140 +62,206 @@ class Game {
             }
         }, 40000);
 
-        // Uyumluluk: eski diamonds array (artık kullanılmıyor ama getState'te lazım olabilir)
         this.diamonds = [];
         this.tents = [];
     }
 
-    // --- CHUNK GENERATION ---
+    // === CHUNK GENERATION (Vektör) ===
     generateInitialChunks() {
         let startX = 0;
-        const trackY = 1000;
+        let lastEndY = 800; // Başlangıç yüksekliği
         for (let i = 0; i < 12; i++) {
-            const type = (i < 2) ? 'straight' : CHUNK_TYPES[Math.floor(Math.random() * CHUNK_TYPES.length)];
-            const chunk = new Chunk(startX, trackY, type);
+            const type = (i < 3) ? 'flat' : CHUNK_TYPES[Math.floor(Math.random() * CHUNK_TYPES.length)];
+            const chunk = new Chunk(startX, 1000, type, lastEndY);
             this.chunks.push(chunk);
             startX += chunk.length;
+            lastEndY = chunk.endY;
         }
+        // Küpü ilk chunk'ın zeminine oturt
+        this.cube.x = 600;
+        const groundY = this.chunks[0].getGroundY(600) || 800;
+        this.cube.y = groundY - this.cube.radius - 1; // Zeminin hemen üstünde
     }
 
     generateNextChunk() {
         const last = this.chunks[this.chunks.length - 1];
         const type = CHUNK_TYPES[Math.floor(Math.random() * CHUNK_TYPES.length)];
-        const chunk = new Chunk(last.x + last.length, last.y, type);
+        const chunk = new Chunk(last.x + last.length, last.baseY, type, last.endY);
         this.chunks.push(chunk);
         return chunk;
     }
 
     removeOldChunks() {
-        while (this.chunks.length > 0 && this.chunks[0].x + this.chunks[0].length < this.cube.x - 3000) {
+        while (this.chunks.length > 0 && this.chunks[0].x + this.chunks[0].length < this.cube.x - 4000) {
             this.chunks.shift();
         }
     }
 
-    // --- CUBE PHYSICS ---
+    // === ANA FİZİK DÖNGÜSÜ ===
     updateCubePhysics() {
-        // 1. Slope kuvveti
-        for (const chunk of this.chunks) {
-            if (chunk.contains(this.cube.x, this.cube.y)) {
-                this.cube.applySlope(chunk.slopeForce);
-                break;
-            }
-        }
-
-        // 2. Küp fiziği
+        // 1. Küp fiziğini güncelle (yerçekimi + pozisyon)
         this.cube.update();
 
-        // 3. Küpü yol içinde tut
-        const currentChunk = this.getChunkAt(this.cube.x, this.cube.y);
-        if (currentChunk) {
-            const halfW = currentChunk.width / 2;
-            const minY = currentChunk.y - halfW + this.cube.size / 2;
-            const maxY = currentChunk.y + halfW - this.cube.size / 2;
-            if (this.cube.y < minY) { this.cube.y = minY; this.cube.vy = Math.abs(this.cube.vy) * 0.7; }
-            if (this.cube.y > maxY) { this.cube.y = maxY; this.cube.vy = -Math.abs(this.cube.vy) * 0.7; }
-        }
+        // 2. Circle-Line Collision: Küp vs Zemin Segmentleri
+        this.resolveTerrainCollision();
 
-        // 4. Sonsuz yol
+        // 3. Sonsuz yol: yeni chunk ekle, eskiyi sil
         const lastChunk = this.chunks[this.chunks.length - 1];
-        while (this.cube.x > lastChunk.x - 4000) {
+        const lastEnd = lastChunk.x + lastChunk.length;
+        while (this.cube.x > lastEnd - 5000) {
             this.generateNextChunk();
-            if (this.chunks[this.chunks.length - 1].x > lastChunk.x + 10000) break;
+            if (this.chunks.length > 30) break;
         }
         this.removeOldChunks();
     }
 
-    getChunkAt(x, y) {
+    // === CIRCLE-LINE COLLISION ===
+    // Küp (daire) her zemin segmentine karşı test edilir
+    resolveTerrainCollision() {
+        const cx = this.cube.x;
+        const cy = this.cube.y;
+        const r = this.cube.radius;
+        const TERRAIN_FRICTION = 0.02; // Zemin sürtünme katsayısı
+
+        let collided = false;
+
         for (const chunk of this.chunks) {
-            if (chunk.contains(x, y)) return chunk;
+            // Sadece yakın chunk'ları kontrol et
+            if (chunk.x > cx + r + 200 || chunk.x + chunk.length < cx - r - 200) continue;
+
+            const pts = chunk.points;
+            for (let i = 0; i < pts.length - 1; i++) {
+                const a = pts[i];
+                const b = pts[i + 1];
+
+                // X aralığı kontrolü (erken çıkış)
+                if (Math.max(a.x, b.x) < cx - r || Math.min(a.x, b.x) > cx + r) continue;
+
+                // En yakın nokta
+                const closest = closestPointOnSegment(cx, cy, a.x, a.y, b.x, b.y);
+                const dx = cx - closest.x;
+                const dy = cy - closest.y;
+                const dist = len(dx, dy);
+
+                if (dist < r && dist > 0.001) {
+                    // ÇARPIŞMA! Penetrasyon çözümle
+                    collided = true;
+                    const penetration = r - dist;
+
+                    // Normal: merkez → en yakın nokta yönünde (dışarı doğru)
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+
+                    // 1. Penetrasyonu düzelt (küpü dışarı it)
+                    this.cube.x += nx * penetration;
+                    this.cube.y += ny * penetration;
+
+                    // 2. Hız bileşenlerini ayrıştır
+                    const vDotN = dot(this.cube.vx, this.cube.vy, nx, ny);
+
+                    // Sadece yüzeye doğru hareket ediyorsak çöz
+                    if (vDotN < 0) {
+                        // Normal bileşen (bounce)
+                        const vnx = vDotN * nx;
+                        const vny = vDotN * ny;
+
+                        // Tangential bileşen
+                        const vtx = this.cube.vx - vnx;
+                        const vty = this.cube.vy - vny;
+
+                        // Yeni hız: tangent korunur + normal bounce + friction
+                        this.cube.vx = vtx * (1 - TERRAIN_FRICTION) - vDotN * this.cube.restitution * nx;
+                        this.cube.vy = vty * (1 - TERRAIN_FRICTION) - vDotN * this.cube.restitution * ny;
+                    }
+                }
+            }
         }
-        return this.chunks.length > 0 ? this.chunks[0] : null;
+
+        // Güvenlik: Küp çok aşağı düştüyse (düşme koruması)
+        if (this.cube.y > 5000) {
+            // En yakın chunk'a geri koy
+            const chunk = this.chunks[Math.floor(this.chunks.length / 2)];
+            if (chunk && chunk.points.length > 0) {
+                const mid = chunk.points[Math.floor(chunk.points.length / 2)];
+                this.cube.x = mid.x;
+                this.cube.y = mid.y - this.cube.radius - 100;
+                this.cube.vx = 0;
+                this.cube.vy = 0;
+            }
+        }
     }
 
-    // --- PLAYER-CUBE İÇ DUVAR ÇARPIŞMASI ---
+    // === PLAYER-CUBE COLLISION + COOPERATIVE FORCE ===
     updatePlayerCubeCollisions() {
         const half = this.cube.size / 2;
+
+        // Force Accumulator — tüm oyuncuların kuvveti toplanır
+        let totalFx = 0;
+        let totalFy = 0;
 
         for (let id in this.players) {
             const p = this.players[id];
             if (!p) continue;
 
             const pSize = p.size || 20;
-            const playerMass = Math.sqrt(pSize / 20);
+            const force = getPlayerForce(pSize);
 
             const relX = p.x - this.cube.x;
             const relY = p.y - this.cube.y;
-
             const innerLimit = half - pSize;
-            let hit = false;
-            let forceX = 0, forceY = 0;
 
+            let hitX = false, hitY = false;
+            let dirX = 0, dirY = 0;
+
+            // Sol duvar
             if (relX < -innerLimit) {
-                forceX = (p.x - (this.cube.x - innerLimit));
+                dirX = -1;
                 p.x = this.cube.x - innerLimit;
-                hit = true;
+                hitX = true;
             }
+            // Sağ duvar
             if (relX > innerLimit) {
-                forceX = (p.x - (this.cube.x + innerLimit));
+                dirX = 1;
                 p.x = this.cube.x + innerLimit;
-                hit = true;
+                hitX = true;
             }
+            // Üst duvar
             if (relY < -innerLimit) {
-                forceY = (p.y - (this.cube.y - innerLimit));
+                dirY = -1;
                 p.y = this.cube.y - innerLimit;
-                hit = true;
+                hitY = true;
             }
+            // Alt duvar
             if (relY > innerLimit) {
-                forceY = (p.y - (this.cube.y + innerLimit));
+                dirY = 1;
                 p.y = this.cube.y + innerLimit;
-                hit = true;
+                hitY = true;
             }
 
-            if (hit) {
-                let multiplier = playerMass / this.cube.mass;
-                // TITAN: Size > 190 → kuvvet 10x
-                if (pSize > 190) multiplier *= 10;
-                this.cube.vx += forceX * multiplier * 2;
-                this.cube.vy += forceY * multiplier * 2;
-            }
+            // Kuvvet vektörü ekle
+            if (hitX) totalFx += dirX * force;
+            if (hitY) totalFy += dirY * force;
+        }
+
+        // Toplam kuvveti küpe uygula
+        if (totalFx !== 0 || totalFy !== 0) {
+            this.cube.applyForce(totalFx, totalFy);
         }
     }
 
-    // --- ELMAS ÇARPIŞMA (LOKAL UZAY → DÜNYA UZAYI MATEMATİĞİ) ---
-    // Formül: DiamondWorldPos = CubePos + Rotate(DiamondLocalPos, CubeAngle)
-    // Distance(PlayerWorldPos, DiamondWorldPos) < playerSize + diamondSize → TOPLA
+    // === ELMAS ÇARPIŞMA (LOCAL SPACE) ===
+    // Oyuncu pozisyonunu -CubeAngle ile döndür, sonra lokal koordinatta kontrol et
     checkLocalDiamondCollisions(player) {
         const pSize = player.size || 20;
 
+        // Oyuncuyu küpün lokal uzayına çevir
+        const local = this.cube.worldToLocal(player.x, player.y);
+
         for (let i = this.cube.localDiamonds.length - 1; i >= 0; i--) {
             const d = this.cube.localDiamonds[i];
-
-            // Elmasın dünya pozisyonunu hesapla
-            const worldPos = this.cube.localToWorld(d.localX, d.localY);
-            const distance = Math.sqrt(
-                Math.pow(player.x - worldPos.x, 2) +
-                Math.pow(player.y - worldPos.y, 2)
-            );
+            const dx = local.x - d.localX;
+            const dy = local.y - d.localY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance < pSize + d.size) {
                 player.score += d.points;
@@ -168,8 +269,6 @@ class Game {
 
                 const type = d.type;
                 this.cube.localDiamonds.splice(i, 1);
-
-                // Normal elması yeniden spawn et
                 if (type === 'normal' && this.cube.localDiamonds.length < this.maxLocalDiamonds) {
                     this.cube.spawnDiamond('normal');
                 }
@@ -179,24 +278,18 @@ class Game {
         return null;
     }
 
-    // --- ZAR ATMA (LOKAL ÇADIR POZİSYONU) ---
+    // === ZAR ATMA (LOCAL SPACE ÇADIR) ===
     playerRollDice(id) {
         const player = this.players[id];
         if (!player) return null;
 
-        // Çadırın dünya pozisyonunu hesapla
+        // Oyuncuyu lokal uzaya çevir
+        const local = this.cube.worldToLocal(player.x, player.y);
         const tent = this.cube.tent;
-        const tentWorld = this.cube.localToWorld(tent.localX, tent.localY);
-        const tentWorldEnd = this.cube.localToWorld(tent.localX + tent.w, tent.localY + tent.h);
 
-        // Basit AABB: oyuncu çadır alanında mı?
-        const minX = Math.min(tentWorld.x, tentWorldEnd.x);
-        const maxX = Math.max(tentWorld.x, tentWorldEnd.x);
-        const minY = Math.min(tentWorld.y, tentWorldEnd.y);
-        const maxY = Math.max(tentWorld.y, tentWorldEnd.y);
-
-        if (player.x > minX && player.x < maxX &&
-            player.y > minY && player.y < maxY) {
+        // Lokal AABB kontrolü
+        if (local.x > tent.localX && local.x < tent.localX + tent.w &&
+            local.y > tent.localY && local.y < tent.localY + tent.h) {
 
             const now = Date.now();
             if (now - player.lastDiceTime > 5000) {
@@ -211,7 +304,6 @@ class Game {
                     win = true;
                     player.score += 300;
                     if (player.score > player.bestScore) player.bestScore = player.score;
-
                     if (roll === 20) {
                         player.size = 500;
                         message = "MEGA HULK (NAT 20)!";
@@ -219,12 +311,10 @@ class Game {
                         player.size = 100;
                         message = "HULK MODU!";
                     }
-
                     setTimeout(() => {
                         if (this.players[id]) this.players[id].size = 20;
                     }, 10000);
                 }
-
                 return { roll, target, win, nickname: player.nickname, extraMsg: message };
             }
         }
@@ -236,14 +326,11 @@ class Game {
         const safeNick = (nickname && typeof nickname === 'string') ? nickname.substring(0, 15) : "Unknown";
         const safeScore = (typeof bestScore === 'number' && !isNaN(bestScore)) ? bestScore : 0;
         this.players[id] = new Player(id, safeNick, safeScore);
-        // Küpün merkezinde spawn
         this.players[id].x = this.cube.x;
         this.players[id].y = this.cube.y;
     }
 
-    removePlayer(id) {
-        if (this.players[id]) delete this.players[id];
-    }
+    removePlayer(id) { if (this.players[id]) delete this.players[id]; }
 
     applyPenalty(id, amount) {
         const player = this.players[id];
@@ -256,12 +343,9 @@ class Game {
     movePlayer(id, data) {
         const player = this.players[id];
         if (player) {
-            if (typeof data.x !== 'number' || isNaN(data.x) || typeof data.y !== 'number' || isNaN(data.y)) {
-                return null;
-            }
+            if (typeof data.x !== 'number' || isNaN(data.x) || typeof data.y !== 'number' || isNaN(data.y)) return null;
             player.x = data.x;
             player.y = data.y;
-            // Elmas çarpışması lokal uzayda
             return this.checkLocalDiamondCollisions(player);
         }
         return null;
@@ -270,8 +354,8 @@ class Game {
     getState() {
         return {
             players: this.players,
-            diamonds: [],  // Eski uyumluluk (artık localDiamonds'ta)
-            tents: [],     // Eski uyumluluk (artık cube.tent'te)
+            diamonds: [],
+            tents: [],
             cube: this.cube.getState(),
             chunks: this.chunks.map(c => c.getState())
         };

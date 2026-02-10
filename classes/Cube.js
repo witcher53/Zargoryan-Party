@@ -5,27 +5,33 @@ class Cube {
         this.vx = 0;
         this.vy = 0;
         this.mass = 50;
-        this.size = 3000;    // DEV KÜP: Tüm oyun bu kutunun İÇİNDE
+        this.size = 3000;
+        this.radius = this.size / 2;
         this.angle = 0;
         this.angularVel = 0;
         this.friction = 0.985;
+        this.restitution = 0.3; // Bounce katsayısı (0 = tam yapışkan, 1 = tam elastik)
 
         // --- LOCAL SPACE CHILD OBJECTS ---
-        // Çadır: Küpün merkezine göre sabit lokal koordinat
         this.tent = {
             localX: -400, localY: -400,
             w: 500, h: 500,
             color: '#e67e22', label: 'ZAR ALANI'
         };
-
-        // Elmaslar: Lokal koordinatlarda
         this.localDiamonds = [];
+
+        // Yerçekimi
+        this.gravity = 0.5;
     }
 
-    // --- LOCAL → WORLD DÖNÜŞÜM ---
-    // Formül: WorldPos = CubePos + Rotate(LocalPos, CubeAngle)
-    // | cos(θ)  -sin(θ) | * | lx |   +  | cx |
-    // | sin(θ)   cos(θ) |   | ly |      | cy |
+    // --- KUVVET UYGULAMA ---
+    // Oyuncuların toplam kuvveti buraya gelir
+    applyForce(fx, fy) {
+        this.vx += fx / this.mass;
+        this.vy += fy / this.mass;
+    }
+
+    // --- LOCAL ↔ WORLD DÖNÜŞÜM ---
     localToWorld(localX, localY) {
         const cos = Math.cos(this.angle);
         const sin = Math.sin(this.angle);
@@ -35,8 +41,6 @@ class Cube {
         };
     }
 
-    // --- WORLD → LOCAL DÖNÜŞÜM ---
-    // Ters rotasyon: angle yerine -angle
     worldToLocal(worldX, worldY) {
         const cos = Math.cos(-this.angle);
         const sin = Math.sin(-this.angle);
@@ -50,7 +54,7 @@ class Cube {
 
     // Elmas spawn (lokal koordinatta)
     spawnDiamond(type) {
-        const half = this.size / 2 - 100; // Kenardan 100px içeride
+        const half = this.size / 2 - 100;
         const d = {
             id: Math.random().toString(36).substr(2, 9),
             localX: (Math.random() - 0.5) * 2 * half,
@@ -65,9 +69,12 @@ class Cube {
     }
 
     update() {
-        // Sürtünme
-        this.vx *= this.friction;
-        this.vy *= this.friction;
+        // Yerçekimi
+        this.vy += this.gravity;
+
+        // Sürtünme (hava direnci)
+        this.vx *= 0.999;
+        this.vy *= 0.999;
 
         // Dead zone
         if (Math.abs(this.vx) < 0.05) this.vx = 0;
@@ -82,17 +89,10 @@ class Cube {
         this.x += this.vx;
         this.y += this.vy;
 
-        // Dönüş: angularVel = linearSpeed / radius
+        // Dönüş: vx'e bağlı yuvarlanma
         const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        const radius = this.size / 2;
-        this.angularVel = speed / radius;
-        if (this.vx < 0) this.angularVel *= -1;
+        this.angularVel = this.vx / this.radius; // Sola gidince sola döner
         this.angle += this.angularVel;
-    }
-
-    applySlope(force) {
-        this.vx += force.x / this.mass;
-        this.vy += force.y / this.mass;
     }
 
     getState() {

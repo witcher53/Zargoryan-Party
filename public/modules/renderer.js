@@ -41,60 +41,66 @@ function drawD20(ctx, x, y, size, color, val) {
     ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(val, 0, 0); ctx.restore();
 }
 
-// --- CHUNK ÇİZİMİ ---
-function drawChunks(ctx) {
+// Smooth kamera state
+let smoothCamX = 1000, smoothCamY = 1000, smoothZoom = 0.8;
+
+// === VEKTÖR TERRAIN ÇİZİMİ ===
+function drawVectorTerrain(ctx) {
     state.chunks.forEach(chunk => {
-        const halfW = chunk.width / 2;
-        ctx.fillStyle = chunk.color;
-        ctx.fillRect(chunk.x, chunk.y - halfW, chunk.length, chunk.width);
+        if (!chunk.points || chunk.points.length < 2) return;
 
-        ctx.strokeStyle = '#ffffff33';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(chunk.x, chunk.y - halfW, chunk.length, chunk.width);
+        const pts = chunk.points;
 
-        ctx.save();
-        ctx.setLineDash([20, 20]);
-        ctx.strokeStyle = '#ffffff15';
-        ctx.lineWidth = 2;
+        // Zemin dolgusunu çiz (noktalar + alt kenar)
         ctx.beginPath();
-        ctx.moveTo(chunk.x, chunk.y);
-        ctx.lineTo(chunk.x + chunk.length, chunk.y);
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        // Alt köşeler
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y + 2000);
+        ctx.lineTo(pts[0].x, pts[0].y + 2000);
+        ctx.closePath();
+
+        // Gradient dolgu
+        const grd = ctx.createLinearGradient(pts[0].x, pts[0].y - 200, pts[0].x, pts[0].y + 400);
+        grd.addColorStop(0, '#3a5a3a');   // Koyu yeşil üst
+        grd.addColorStop(0.3, '#2a3a2a'); // Orta
+        grd.addColorStop(1, '#1a1a1a');   // Koyu alt
+        ctx.fillStyle = grd;
+        ctx.fill();
+
+        // Zemin çizgisi (üst kenar)
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.strokeStyle = '#88cc88';
+        ctx.lineWidth = 4;
         ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
 
-        if (chunk.type === 'slope_down') {
-            for (let i = 0; i < 5; i++) {
-                const ax = chunk.x + (i + 0.5) * (chunk.length / 5);
-                drawArrow(ctx, ax, chunk.y, 1, '#00ff0066');
-            }
-        }
-        if (chunk.type === 'slope_up') {
-            for (let i = 0; i < 5; i++) {
-                const ax = chunk.x + (i + 0.5) * (chunk.length / 5);
-                drawArrow(ctx, ax, chunk.y, -1, '#ff000066');
-            }
+        // Çimen efekti (üst kenarda küçük çizgiler)
+        ctx.strokeStyle = '#66aa6644';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const mid = { x: (pts[i].x + pts[i + 1].x) / 2, y: (pts[i].y + pts[i + 1].y) / 2 };
+            ctx.beginPath();
+            ctx.moveTo(mid.x - 5, mid.y);
+            ctx.lineTo(mid.x, mid.y - 15);
+            ctx.lineTo(mid.x + 5, mid.y);
+            ctx.stroke();
         }
 
-        if (chunk.label) {
-            ctx.fillStyle = '#ffffff88';
-            ctx.font = 'bold 28px Arial';
+        // Chunk tipi etiketi
+        if (chunk.type && chunk.type !== 'flat') {
+            ctx.fillStyle = '#ffffff44';
+            ctx.font = 'bold 22px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText(chunk.label, chunk.x + chunk.length / 2, chunk.y - halfW - 15);
+            const midIdx = Math.floor(pts.length / 2);
+            ctx.fillText(chunk.type.toUpperCase(), pts[midIdx].x, pts[midIdx].y - 40);
         }
     });
-}
-
-function drawArrow(ctx, x, y, dir, color) {
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x + dir * 20, y);
-    ctx.lineTo(x - dir * 10, y - 12);
-    ctx.lineTo(x - dir * 10, y + 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
 }
 
 export function drawGame(ctx, canvas, socket) {
@@ -104,25 +110,45 @@ export function drawGame(ctx, canvas, socket) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
 
-    // === KAMERA: KÜP'Ü TAKİP ET ===
-    const camX = (cube && Number.isFinite(cube.x)) ? cube.x : 1000;
-    const camY = (cube && Number.isFinite(cube.y)) ? cube.y : 1000;
+    // === DİNAMİK KAMERA ===
+    const camTargetX = (cube && Number.isFinite(cube.x)) ? cube.x : 1000;
+    const camTargetY = (cube && Number.isFinite(cube.y)) ? cube.y : 1000;
 
-    // Zoom: Küp 3000 birim, ekrana sığdırmak için 0.35
-    const zoom = Math.min(canvas.width, canvas.height) / (cube.size * 1.4);
-    const offsetX = (canvas.width / 2) - (camX * zoom);
-    const offsetY = (canvas.height / 2) - (camY * zoom);
+    // Hıza göre zoom: Hızlıyken zoom out
+    const cubeSpeed = cube ? Math.sqrt((cube.vx || 0) ** 2 + (cube.vy || 0) ** 2) : 0;
+    const zoomTarget = Math.max(0.4, 0.8 - (cubeSpeed / 60) * 0.4);
+
+    // Smooth kamera
+    smoothCamX = lerp(smoothCamX, camTargetX, 0.08);
+    smoothCamY = lerp(smoothCamY, camTargetY, 0.08);
+    smoothZoom = lerp(smoothZoom, zoomTarget, 0.05);
+
+    const zoom = smoothZoom;
+    const offsetX = (canvas.width / 2) - (smoothCamX * zoom);
+    const offsetY = (canvas.height / 2) - (smoothCamY * zoom);
     ctx.setTransform(zoom, 0, 0, zoom, offsetX, offsetY);
 
-    // === ARKA PLAN GRID ===
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-    ctx.lineWidth = 1;
+    // === ARKA PLAN ===
+    // Gökyüzü gradient (viewport alanında)
+    const viewLeft = smoothCamX - canvas.width / zoom / 2;
+    const viewTop = smoothCamY - canvas.height / zoom / 2;
     const viewW = canvas.width / zoom;
     const viewH = canvas.height / zoom;
-    const gridStart = Math.floor((camX - viewW) / 200) * 200;
-    const gridEnd = camX + viewW;
-    const gridYStart = Math.floor((camY - viewH) / 200) * 200;
-    const gridYEnd = camY + viewH;
+
+    const skyGrd = ctx.createLinearGradient(viewLeft, viewTop, viewLeft, viewTop + viewH);
+    skyGrd.addColorStop(0, '#0a0a2e');
+    skyGrd.addColorStop(0.5, '#1a1a3e');
+    skyGrd.addColorStop(1, '#0a1a0a');
+    ctx.fillStyle = skyGrd;
+    ctx.fillRect(viewLeft, viewTop, viewW, viewH);
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+    ctx.lineWidth = 1;
+    const gridStart = Math.floor(viewLeft / 200) * 200;
+    const gridEnd = viewLeft + viewW;
+    const gridYStart = Math.floor(viewTop / 200) * 200;
+    const gridYEnd = viewTop + viewH;
     for (let gx = gridStart; gx <= gridEnd; gx += 200) {
         ctx.beginPath(); ctx.moveTo(gx, gridYStart); ctx.lineTo(gx, gridYEnd); ctx.stroke();
     }
@@ -130,32 +156,30 @@ export function drawGame(ctx, canvas, socket) {
         ctx.beginPath(); ctx.moveTo(gridStart, gy); ctx.lineTo(gridEnd, gy); ctx.stroke();
     }
 
-    // === CHUNK'LARI ÇİZ ===
-    drawChunks(ctx);
+    // === VEKTÖR TERRAIN ===
+    drawVectorTerrain(ctx);
 
     // ============================================
     // === KÜP + CHILD OBJECTS (LOKAL UZAY) ===
     // ============================================
-    // ctx.translate → küp merkezi, ctx.rotate → küp açısı
-    // Bu blokta çizilen her şey küple birlikte döner
     ctx.save();
-    ctx.translate(camX, camY);
+    ctx.translate(cube.x || 0, cube.y || 0);
     ctx.rotate(cube.angle || 0);
 
     const half = cube.size / 2;
 
-    // --- KÜP KENARLARI ---
+    // Küp dış kenar
     ctx.strokeStyle = '#e74c3c';
     ctx.lineWidth = 8;
     ctx.strokeRect(-half, -half, cube.size, cube.size);
 
-    // İç parlak kenar
-    ctx.strokeStyle = '#ff6b6b33';
+    // İç glow
+    ctx.strokeStyle = '#ff6b6b22';
     ctx.lineWidth = 3;
-    ctx.strokeRect(-half + 20, -half + 20, cube.size - 40, cube.size - 40);
+    ctx.strokeRect(-half + 30, -half + 30, cube.size - 60, cube.size - 60);
 
     // Çapraz çizgiler
-    ctx.strokeStyle = '#ffffff08';
+    ctx.strokeStyle = '#ffffff06';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-half, -half); ctx.lineTo(half, half);
@@ -169,7 +193,7 @@ export function drawGame(ctx, canvas, socket) {
         ctx.fillRect(cx - dotSize / 2, cy - dotSize / 2, dotSize, dotSize);
     });
 
-    // --- ÇADIR (LOKAL KOORDİNATTA) ---
+    // Çadır (lokal)
     if (cube.tent) {
         const t = cube.tent;
         ctx.fillStyle = t.color || '#e67e22';
@@ -185,7 +209,7 @@ export function drawGame(ctx, canvas, socket) {
         ctx.fillText(t.label || 'ZAR', t.localX + t.w / 2, t.localY + t.h / 2 + 15);
     }
 
-    // --- ELMASLAR (LOKAL KOORDİNATTA) ---
+    // Elmaslar (lokal)
     if (cube.localDiamonds) {
         cube.localDiamonds.forEach(d => {
             ctx.fillStyle = d.color || '#00ffff';
@@ -196,7 +220,7 @@ export function drawGame(ctx, canvas, socket) {
         });
     }
 
-    // --- MINIGAME ITEMS (LOKAL KOORDİNATTA) ---
+    // Minigame items (lokal)
     if (state.minigame.active) {
         state.minigame.obstacles.forEach(obs => {
             if (!obs.hit) {
@@ -216,15 +240,15 @@ export function drawGame(ctx, canvas, socket) {
         });
     }
 
-    ctx.restore(); // ← Küp lokal uzayından çık
+    ctx.restore(); // Küp lokal uzayından çık
 
     // ============================================
-    // === OYUNCULAR (DÜNYA UZAYI — DÖNMEZ) ===
+    // === OYUNCULAR (DÜNYA UZAYI) ===
     // ============================================
-    const safeX = (Number.isFinite(mp.x)) ? mp.x : 1000;
-    const safeY = (Number.isFinite(mp.y)) ? mp.y : 1000;
+    const safeX = Number.isFinite(mp.x) ? mp.x : 1000;
+    const safeY = Number.isFinite(mp.y) ? mp.y : 1000;
 
-    // Floating texts (world space)
+    // Floating texts
     for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
         let ft = state.floatingTexts[i];
         ctx.fillStyle = ft.color; ctx.font = "bold 24px Arial"; ctx.textAlign = "center"; ctx.fillText(ft.text, ft.x, ft.y);
@@ -234,7 +258,6 @@ export function drawGame(ctx, canvas, socket) {
     for (let id in state.players) {
         let p = state.players[id];
         if (!p) continue;
-
         if (isNaN(p.x)) p.x = 1000;
         if (isNaN(p.y)) p.y = 1000;
         if (isNaN(p.targetX)) p.targetX = p.x;
@@ -248,18 +271,15 @@ export function drawGame(ctx, canvas, socket) {
                 const dSize = Math.min((p.size || 20), 1000);
                 ctx.fillText(`SAĞA ABAN! (${(2000 - (Date.now() - mp.comboTimer)) / 1000}s)`, px, py - dSize - 25); ctx.restore();
             }
-        }
-        else {
+        } else {
             p.x = lerp(p.x, p.targetX, 0.2);
             p.y = lerp(p.y, p.targetY, 0.2);
             px = p.x; py = p.y;
         }
 
         ctx.save(); ctx.translate(px, py);
-
         let realSize = (p.size && Number.isFinite(p.size) && p.size > 0) ? p.size : 20;
         let drawSize = Math.min(realSize, 1000);
-
         ctx.fillStyle = p.color || '#fff';
         ctx.beginPath(); ctx.arc(0, 0, drawSize, 0, Math.PI * 2); ctx.fill();
 
@@ -292,33 +312,35 @@ export function drawGame(ctx, canvas, socket) {
         }
         ctx.restore();
     }
-    ctx.restore(); // ← Kamera transform'dan çık
+    ctx.restore(); // Kamera'dan çık
 
-    // === HUD (Ekran uzayı — zoom'dan etkilenmez) ===
+    // === HUD (Ekran uzayı) ===
     if (mp.playing) {
         const speedVal = Math.sqrt(mp.vx * mp.vx + mp.vy * mp.vy).toFixed(0);
 
         ctx.save();
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.fillRect(10, 10, 300, 190);
-        ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.strokeRect(10, 10, 300, 190);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.fillRect(10, 10, 310, 210);
+        ctx.strokeStyle = "#ffffff33"; ctx.lineWidth = 1; ctx.strokeRect(10, 10, 310, 210);
 
         ctx.textAlign = "left";
         let pingColor = state.currentPing < 100 ? '#00ff00' : (state.currentPing < 200 ? 'yellow' : 'red');
-        ctx.font = "bold 20px Arial"; ctx.fillStyle = pingColor; ctx.fillText(`PING: ${state.currentPing} ms`, 25, 45);
-        ctx.fillStyle = "#00ffff"; ctx.fillText(`HIZ: ${speedVal}`, 25, 75);
+        ctx.font = "bold 20px Arial"; ctx.fillStyle = pingColor; ctx.fillText(`PING: ${state.currentPing} ms`, 25, 40);
+        ctx.fillStyle = "#00ffff"; ctx.fillText(`HIZ: ${speedVal}`, 25, 68);
         const comboColor = mp.momentum > 2.0 ? `hsl(${Date.now() % 360}, 100%, 70%)` : "orange";
-        ctx.fillStyle = comboColor; ctx.font = "bold 24px Arial"; ctx.fillText(`KOMBO: x${mp.momentum.toFixed(2)}`, 25, 110);
+        ctx.fillStyle = comboColor; ctx.font = "bold 24px Arial"; ctx.fillText(`KOMBO: x${mp.momentum.toFixed(2)}`, 25, 100);
 
         if (cube) {
-            const cubeSpeed = Math.sqrt((cube.vx || 0) ** 2 + (cube.vy || 0) ** 2).toFixed(1);
+            const cs = Math.sqrt((cube.vx || 0) ** 2 + (cube.vy || 0) ** 2).toFixed(1);
             ctx.fillStyle = '#e74c3c'; ctx.font = "bold 18px Arial";
-            ctx.fillText(`KÜP HIZ: ${cubeSpeed}`, 25, 140);
+            ctx.fillText(`KÜP HIZ: ${cs}`, 25, 130);
+            ctx.fillStyle = '#aaa'; ctx.font = "bold 14px Arial";
+            ctx.fillText(`ZOOM: ${smoothZoom.toFixed(2)}x`, 25, 150);
         }
 
         ctx.textAlign = "center"; ctx.font = "bold 14px Arial"; ctx.fillStyle = "#FFD700";
-        ctx.fillText("SOL TIK + SAĞ TIK ABAN", 160, 165);
-        ctx.fillText("= AŞIRI HIZLAN! 🚀", 160, 182);
+        ctx.fillText("SOL TIK + SAĞ TIK ABAN", 165, 180);
+        ctx.fillText("= AŞIRI HIZLAN! 🚀", 165, 198);
         ctx.restore();
 
         if (state.showDice) {
