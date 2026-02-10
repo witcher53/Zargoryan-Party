@@ -114,14 +114,15 @@ export function drawGame(ctx, canvas, socket) {
     const camTargetX = (cube && Number.isFinite(cube.x)) ? cube.x : 1000;
     const camTargetY = (cube && Number.isFinite(cube.y)) ? cube.y : 1000;
 
-    // Hıza göre zoom: Hızlıyken zoom out
-    const cubeSpeed = cube ? Math.sqrt((cube.vx || 0) ** 2 + (cube.vy || 0) ** 2) : 0;
-    const zoomTarget = Math.max(0.4, 0.8 - (cubeSpeed / 60) * 0.4);
+    // Mouse wheel zoom: state.camera.targetZoom kullan
+    const cam = state.camera;
+    const zoomTarget = cam.targetZoom;
 
     // Smooth kamera
     smoothCamX = lerp(smoothCamX, camTargetX, 0.08);
     smoothCamY = lerp(smoothCamY, camTargetY, 0.08);
-    smoothZoom = lerp(smoothZoom, zoomTarget, 0.05);
+    smoothZoom = lerp(smoothZoom, zoomTarget, 0.1); // 0.05 → 0.1 daha responsive
+    cam.zoom = smoothZoom; // HUD için geri yaz
 
     const zoom = smoothZoom;
     const offsetX = (canvas.width / 2) - (smoothCamX * zoom);

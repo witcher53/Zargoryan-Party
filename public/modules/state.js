@@ -12,6 +12,12 @@ export const state = {
         localDiamonds: []
     },
     chunks: [],
+    camera: {
+        targetZoom: 0.8,
+        zoom: 0.8,
+        minZoom: 0.1,
+        maxZoom: 2.0
+    },
     activeMessages: {},
     keys: {},
 

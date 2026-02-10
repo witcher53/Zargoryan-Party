@@ -27,6 +27,20 @@ const DOM = {
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
+// --- MOUSE WHEEL ZOOM ---
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const cam = state.camera;
+    const zoomStep = 0.1;
+    if (e.deltaY < 0) {
+        // Scroll up → Zoom IN
+        cam.targetZoom = Math.min(cam.maxZoom, cam.targetZoom + zoomStep);
+    } else {
+        // Scroll down → Zoom OUT
+        cam.targetZoom = Math.max(cam.minZoom, cam.targetZoom - zoomStep);
+    }
+}, { passive: false });
+
 initInputs(socket, sendMessage);
 
 // --- BAĞLANTI ---
