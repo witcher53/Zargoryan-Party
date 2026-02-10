@@ -20,10 +20,12 @@ export const state = {
         y: 1000, 
         vx: 0, 
         vy: 0, 
-        acc: 1.5,       
-        friction: 0.96,
+        // --- YENİ FİZİK AYARLARI ---
+        acc: 0.8,        // Düşük ivme = Araba gibi geç hızlanma
+        friction: 0.985, // Çok yüksek kayganlık = Drift hissi
         momentum: 1.0,  
-        maxMomentum: 8.0, 
+        maxMomentum: 5.0, // Hız sınırını biraz kıstık ki kontrol tamamen kaybolmasın
+        // ---------------------------
         nextClick: 0, 
         comboTimer: 0, 
         speed: 10,      

@@ -24,11 +24,8 @@ function updateMinigame(socket) {
             mg.startTime = Date.now();
             mg.obstacles = [];
             mg.collectibles = [];
-            
-            // SKORLARI SIFIRLA
             mg.sessionScoreGained = 0;
             mg.sessionScoreLost = 0;
-            
             state.floatingTexts.push({ x: mp.x, y: mp.y - 100, text: 'KAÇ VE TOPLA!', color: '#00ff00', life: 60 });
         }
         return; 
@@ -42,8 +39,7 @@ function updateMinigame(socket) {
         return;
     }
 
-    // --- DAHA AZ RESİM YAĞMASI ---
-    // Oranları düşürdüm: 0.06 -> 0.02 ve 0.10 -> 0.03
+    // --- DAHA AZ AMA ÖZ ENGEL ---
     if (Math.random() < 0.02) { 
         mg.obstacles.push({ x: Math.random() * MAP_WIDTH, y: -150, w: 120, h: 120, vy: Math.random() * 3 + 4, hit: false, imgIndex: Math.floor(Math.random() * 3) });
     }
@@ -51,12 +47,10 @@ function updateMinigame(socket) {
         mg.collectibles.push({ x: Math.random() * MAP_WIDTH, y: -150, w: 100, h: 100, vy: Math.random() * 2 + 3, collected: false, imgIndex: Math.floor(Math.random() * 3) });
     }
 
-    // --- FİZİK GÜNCELLEME (OBSTACLES) ---
+    // --- OBSTACLES ---
     for (let i = mg.obstacles.length - 1; i >= 0; i--) {
         let obs = mg.obstacles[i];
         obs.y += obs.vy;
-
-        // Çarpışma Kontrolü (Güvenli)
         const pSize = (mp.size && !isNaN(mp.size)) ? mp.size : 20;
         
         if (!obs.hit && !isNaN(mp.x) && !isNaN(mp.y) &&
@@ -65,20 +59,17 @@ function updateMinigame(socket) {
         ) {
             obs.hit = true;
             socket.emit('minigamePenalty', 50); 
-            // Skoru anlık güncelle
             mg.sessionScoreLost += 50; 
             state.floatingTexts.push({ x: mp.x, y: mp.y, text: '-50 DARBE!', color: 'red', life: 30 });
             triggerRumble(null, 1.0, 1.0, 300);
         }
-
         if (obs.y > MAP_HEIGHT) mg.obstacles.splice(i, 1);
     }
 
-    // --- FİZİK GÜNCELLEME (COLLECTIBLES) ---
+    // --- COLLECTIBLES ---
     for (let i = mg.collectibles.length - 1; i >= 0; i--) {
         let col = mg.collectibles[i];
         col.y += col.vy;
-
         const pSize = (mp.size && !isNaN(mp.size)) ? mp.size : 20;
         
         if (!col.collected && !isNaN(mp.x) && !isNaN(mp.y) &&
@@ -87,16 +78,13 @@ function updateMinigame(socket) {
         ) {
             col.collected = true;
             socket.emit('claimAsReward'); socket.emit('claimAsReward'); 
-            // Skoru anlık güncelle
             mg.sessionScoreGained += 100;
             state.floatingTexts.push({ x: mp.x, y: mp.y - 50, text: '+100 ALDIN!', color: '#00ff00', life: 40 });
             triggerRumble(null, 0.5, 0.5, 100);
         }
-
         if (col.y > MAP_HEIGHT) {
             if (!col.collected) {
                 socket.emit('minigamePenalty', 5); 
-                // Kaçanlar için de skor güncelle
                 mg.sessionScoreLost += 5;
                 state.floatingTexts.push({ x: col.x, y: MAP_HEIGHT - 50, text: '-5 KAÇTI!', color: 'orange', life: 30 });
             }
@@ -108,7 +96,7 @@ function updateMinigame(socket) {
 export function updatePhysics(socket, gp) {
     const mp = state.myPlayer;
 
-    // 1. ACİL DURUM KONTROLÜ
+    // ACİL DURUM KONTROLÜ
     if (isNaN(mp.x) || !Number.isFinite(mp.x)) mp.x = 1000;
     if (isNaN(mp.y) || !Number.isFinite(mp.y)) mp.y = 1000;
     if (isNaN(mp.vx) || !Number.isFinite(mp.vx)) mp.vx = 0;
@@ -118,6 +106,7 @@ export function updatePhysics(socket, gp) {
 
     let ax = 0, ay = 0;
     
+    // INPUTS
     if (gp) {
         if (Math.abs(gp.axes[0]) > 0.1) ax = gp.axes[0];
         if (Math.abs(gp.axes[1]) > 0.1) ay = gp.axes[1];
@@ -140,9 +129,9 @@ export function updatePhysics(socket, gp) {
         updateMinigame(socket);
     }
 
-    mp.momentum *= 0.995; 
+    // MOMENTUM AZALMASI
+    mp.momentum *= 0.997; 
     if (mp.momentum < 1.0) mp.momentum = 1.0;
-    if (isNaN(mp.momentum)) mp.momentum = 1.0;
 
     if (mp.nextClick === 2 && Date.now() - mp.comboTimer > 2000) {
         mp.nextClick = 0;
@@ -150,22 +139,34 @@ export function updatePhysics(socket, gp) {
         state.floatingTexts.push({ x: mp.x, y: mp.y - 40, text: 'SÜRE BİTTİ', color: 'gray', life: 20 });
     }
 
-    const len = Math.sqrt(ax*ax + ay*ay);
-    if (len > 0) {
-        const baseAcc = (mp.speed > 20) ? mp.acc * 2 : mp.acc;
-        
-        const newVx = mp.vx + (ax / len) * baseAcc * mp.momentum;
-        const newVy = mp.vy + (ay / len) * baseAcc * mp.momentum;
+    // --- KÜTLE SİSTEMİ (MASS) ---
+    // Boyut 20 -> Kütle 1
+    // Boyut 200 (Giga) -> Kütle ~3.2
+    // Boyut 800 (Titan) -> Kütle ~6.3
+    const visualSize = (mp.size && !isNaN(mp.size)) ? mp.size : 20;
+    const mass = Math.sqrt(visualSize / 20);
+    const effectiveAcc = mp.acc / mass; // Kütle arttıkça ivme düşer
 
-        if (Number.isFinite(newVx)) mp.vx = newVx;
-        if (Number.isFinite(newVy)) mp.vy = newVy;
+    // --- VEKTÖR EKLEME (Drift Mantığı) ---
+    // Hızı direkt değiştirmiyoruz (overwrite), ivme ekliyoruz (add).
+    // Böylece ters yöne basınca hemen duramazsın, kayarsın.
+    const len = Math.sqrt(ax * ax + ay * ay);
+    if (len > 0) {
+        const boostMul = (mp.speed > 20) ? 1.5 : 1.0;
+        const accX = (ax / len) * effectiveAcc * mp.momentum * boostMul;
+        const accY = (ay / len) * effectiveAcc * mp.momentum * boostMul;
+
+        if (Number.isFinite(accX)) mp.vx += accX;
+        if (Number.isFinite(accY)) mp.vy += accY;
     }
 
+    // --- SÜRTÜNME (BUZ HOKEYİ) ---
     mp.vx *= mp.friction;
     mp.vy *= mp.friction;
 
-    const maxSpeedLimit = 30 * mp.momentum;
-    const currentSpeed = Math.sqrt(mp.vx*mp.vx + mp.vy*mp.vy);
+    // --- HIZ LİMİTİ ---
+    const maxSpeedLimit = 45 * mp.momentum / mass;
+    const currentSpeed = Math.sqrt(mp.vx * mp.vx + mp.vy * mp.vy);
     
     if (currentSpeed > maxSpeedLimit && currentSpeed > 0 && Number.isFinite(currentSpeed)) {
         const ratio = maxSpeedLimit / currentSpeed;
@@ -175,45 +176,67 @@ export function updatePhysics(socket, gp) {
         }
     }
 
-    if (Math.abs(mp.vx) < 0.1) mp.vx = 0;
-    if (Math.abs(mp.vy) < 0.1) mp.vy = 0;
+    if (Math.abs(mp.vx) < 0.05) mp.vx = 0;
+    if (Math.abs(mp.vy) < 0.05) mp.vy = 0;
 
-    // Mutlak Hız Limiti
-    if (mp.vx > 100) mp.vx = 100; if (mp.vx < -100) mp.vx = -100;
-    if (mp.vy > 100) mp.vy = 100; if (mp.vy < -100) mp.vy = -100;
+    // Hard Cap
+    const HARD_CAP = 80;
+    mp.vx = Math.max(-HARD_CAP, Math.min(HARD_CAP, mp.vx));
+    mp.vy = Math.max(-HARD_CAP, Math.min(HARD_CAP, mp.vy));
 
     let nextX = mp.x + mp.vx;
     let nextY = mp.y + mp.vy;
 
-    const visualSize = (mp.size && !isNaN(mp.size)) ? mp.size : 20;
-    const r = Math.min(visualSize, 40); 
-    
+    // --- HITBOX BUG FIX ---
+    // Artık 'r' gerçek boyuttur.
+    const r = visualSize; 
     const pushBuffer = r + 2;
-    let bounceMultiplier = (r > 30) ? 1.1 : 1.5; 
-    const momentumKick = (mp.momentum * 20) * (r / 20);
+    
+    // --- ELASTİK DUVAR (Enerji Koruması) ---
+    // Duvara çarpınca hızın %95'i ile sekersin.
+    const BOUNCE = 0.95; 
 
-    if (nextX < r) { nextX = pushBuffer; mp.vx = Math.abs(mp.vx) * bounceMultiplier + momentumKick; triggerRumble(gp, 1.0, 1.0, 200); }
-    if (nextX > MAP_WIDTH - r) { nextX = MAP_WIDTH - pushBuffer; mp.vx = -Math.abs(mp.vx) * bounceMultiplier - momentumKick; triggerRumble(gp, 1.0, 1.0, 200); }
-    if (nextY < r) { nextY = pushBuffer; mp.vy = Math.abs(mp.vy) * bounceMultiplier + momentumKick; triggerRumble(gp, 1.0, 1.0, 200); }
-    if (nextY > MAP_HEIGHT - r) { nextY = MAP_HEIGHT - pushBuffer; mp.vy = -Math.abs(mp.vy) * bounceMultiplier - momentumKick; triggerRumble(gp, 1.0, 1.0, 200); }
+    // Sınır Kontrolleri
+    if (nextX < r) { 
+        nextX = r; 
+        mp.vx = Math.abs(mp.vx) * BOUNCE;
+        triggerRumble(gp, 0.8, 1.0, 200);
+    }
+    if (nextX > MAP_WIDTH - r) { 
+        nextX = MAP_WIDTH - r; 
+        mp.vx = -Math.abs(mp.vx) * BOUNCE;
+        triggerRumble(gp, 0.8, 1.0, 200);
+    }
+    if (nextY < r) { 
+        nextY = r; 
+        mp.vy = Math.abs(mp.vy) * BOUNCE;
+        triggerRumble(gp, 0.8, 1.0, 200);
+    }
+    if (nextY > MAP_HEIGHT - r) { 
+        nextY = MAP_HEIGHT - r; 
+        mp.vy = -Math.abs(mp.vy) * BOUNCE;
+        triggerRumble(gp, 0.8, 1.0, 200);
+    }
+
+    // --- TİTAN SIKIŞMA KORUMASI ---
+    // Eğer karakter haritadan büyükse merkeze sabitle
+    if (r >= MAP_WIDTH / 2) nextX = MAP_WIDTH / 2;
+    if (r >= MAP_HEIGHT / 2) nextY = MAP_HEIGHT / 2;
 
     if (!isNaN(nextX) && !isNaN(nextY) && Number.isFinite(nextX) && Number.isFinite(nextY)) {
         if (Math.abs(mp.x - nextX) > 0.01 || Math.abs(mp.y - nextY) > 0.01) {
-            mp.x = nextX; 
-            mp.y = nextY;
+            mp.x = nextX; mp.y = nextY;
             socket.emit('playerMovement', { x: mp.x, y: mp.y });
         }
     } else {
-        mp.vx = 0;
-        mp.vy = 0;
+        mp.vx = 0; mp.vy = 0;
     }
 
+    // ELMAS TOPLAMA
     for (let i = state.diamonds.length - 1; i >= 0; i--) {
         const d = state.diamonds[i];
         if (!d) continue; 
-        
         const dist = Math.sqrt((mp.x - d.x)**2 + (mp.y - d.y)**2);
-        
         if (!isNaN(dist) && dist < visualSize + d.size) { 
             state.collectedIds.push(d.id);
             if (d.type === 'super') {
@@ -231,8 +254,7 @@ export function updatePhysics(socket, gp) {
 function handleComboInput(btnCode, mp) {
     if (btnCode === mp.nextClick) {
         if (btnCode === 0) { 
-            mp.nextClick = 2; 
-            mp.comboTimer = Date.now(); 
+            mp.nextClick = 2; mp.comboTimer = Date.now(); 
             state.floatingTexts.push({ x: mp.x, y: mp.y - 40, text: 'SAĞA ABAN! ->', color: 'yellow', life: 20 });
         } else if (btnCode === 2) { 
             if (Date.now() - mp.comboTimer < 2000) {
@@ -241,8 +263,7 @@ function handleComboInput(btnCode, mp) {
                 state.floatingTexts.push({ x: mp.x, y: mp.y - 50, text: 'HIZLANDIN! 🔥', color: '#00ff00', life: 40 });
                 mp.nextClick = 0; 
             } else {
-                mp.nextClick = 0;
-                mp.momentum = 1.0;
+                mp.nextClick = 0; mp.momentum = 1.0;
                 state.floatingTexts.push({ x: mp.x, y: mp.y - 40, text: 'YAVAŞSIN!', color: 'red', life: 30 });
             }
         }
