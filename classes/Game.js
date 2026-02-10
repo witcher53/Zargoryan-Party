@@ -9,9 +9,9 @@ class Game {
         this.mapWidth = 2000;
         this.mapHeight = 2000;
 
-        // SADECE ZAR ÇADIRI KALDI
+        // Çadır Alanı
         this.tents = [
-            { id: 0, x: 200, y: 200, w: 200, h: 200, color: '#e67e22', label: "ZAR ATMA (D20)" }
+            { id: 0, x: 0, y: 0, w: 400, h: 400, color: '#e67e22', label: "ZAR ALANI" }
         ];
 
         for(let i=0; i<30; i++) this.spawnDiamond('normal');
@@ -24,17 +24,43 @@ class Game {
         }
     }
 
-    addPlayer(id, nickname, bestScore) { 
-        this.players[id] = new Player(id, nickname, bestScore); 
+    addPlayer(id, nickname, bestScore) {
+        // İsim ve skor kontrolü
+        const safeNick = (nickname && typeof nickname === 'string') ? nickname.substring(0, 15) : "Unknown";
+        const safeScore = (typeof bestScore === 'number' && !isNaN(bestScore)) ? bestScore : 0;
+        this.players[id] = new Player(id, safeNick, safeScore);
     }
-    
-    removePlayer(id) { delete this.players[id]; }
+
+    removePlayer(id) { 
+        if (this.players[id]) {
+            delete this.players[id]; 
+        }
+    }
+
+    applyPenalty(id, amount) {
+        const player = this.players[id];
+        if (player && typeof player.score === 'number') {
+            player.score -= amount;
+            if (player.score < 0) player.score = 0;
+        }
+    }
 
     movePlayer(id, data) {
         const player = this.players[id];
         if (player) {
-            player.x = data.x;
-            player.y = data.y;
+            // --- KRİTİK KORUMA: Bozuk Sayı Gelirse İşleme ---
+            if (typeof data.x !== 'number' || isNaN(data.x) || typeof data.y !== 'number' || isNaN(data.y)) {
+                return null;
+            }
+
+            // Sınır Kontrolü (Harita dışına çıkmayı sunucuda da engelle)
+            // Oyuncuyu harita sınırlarına hapseder
+            let safeX = Math.max(0, Math.min(data.x, this.mapWidth));
+            let safeY = Math.max(0, Math.min(data.y, this.mapHeight));
+
+            player.x = safeX;
+            player.y = safeY;
+            
             return this.checkCollisions(player);
         }
         return null;
@@ -45,7 +71,7 @@ class Game {
         if (!player) return null;
 
         const tent = this.tents[0];
-        // Çadır kontrolü
+        // Çadırın içinde mi?
         if (player.x > tent.x && player.x < tent.x + tent.w &&
             player.y > tent.y && player.y < tent.y + tent.h) {
 
@@ -56,25 +82,41 @@ class Game {
                 const target = Math.floor(Math.random() * 10) + 11;
                 const roll = Math.floor(Math.random() * 20) + 1;
                 let win = false;
+                let message = "";
 
                 if (roll > target) {
-                    player.score += 50;
-                    if (player.score > player.bestScore) player.bestScore = player.score;
                     win = true;
+                    player.score += 300;
+                    if (player.score > player.bestScore) player.bestScore = player.score;
+
+                    if (roll === 20) {
+                        player.size = 500;
+                        message = "MEGA HULK (NAT 20)!";
+                    } else {
+                        player.size = 100;
+                        message = "HULK MODU!";
+                    }
+
+                    setTimeout(() => {
+                        if (this.players[id]) this.players[id].size = 20;
+                    }, 10000);
                 }
 
-                return { roll, target, win, nickname: player.nickname };
+                return { roll, target, win, nickname: player.nickname, extraMsg: message };
             }
         }
         return null;
     }
 
     checkCollisions(player) {
+        // Player size yoksa varsayılan 20 yap
+        const pSize = player.size || 20;
+
         for (let i = this.diamonds.length - 1; i >= 0; i--) {
             const d = this.diamonds[i];
             const distance = Math.sqrt(Math.pow(player.x - d.x, 2) + Math.pow(player.y - d.y, 2));
 
-            if (distance < player.size + d.size) { 
+            if (distance < pSize + d.size) {
                 player.score += d.points;
                 if (player.score > player.bestScore) player.bestScore = player.score;
 
