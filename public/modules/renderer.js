@@ -1,13 +1,11 @@
 import { state, MAP_WIDTH, MAP_HEIGHT } from './state.js';
 
-// --- LERP FONKSİYONU ---
 function lerp(start, end, t) {
     if (!Number.isFinite(start)) start = 0;
     if (!Number.isFinite(end)) end = start;
     return start * (1 - t) + end * t;
 }
 
-// --- RESİMLER ---
 const obsImages = [];
 const imgUrls = ["diddy.jpg", "epstein.jpg", "diddy.jpg"];
 imgUrls.forEach(url => { const img = new Image(); img.src = url; obsImages.push(img); });
@@ -16,7 +14,6 @@ const colImages = [];
 const colUrls = ["kirk.jpg", "recai.jpg", "kaanflix.jpg"];
 colUrls.forEach(url => { const img = new Image(); img.src = url; colImages.push(img); });
 
-// YARDIMCI FONKSİYONLAR
 function drawScaledImage(ctx, img, x, y, fixedHeight) {
     if (img.complete && img.naturalHeight !== 0) {
         const ratio = img.naturalWidth / img.naturalHeight;
@@ -29,7 +26,6 @@ function drawScaledImage(ctx, img, x, y, fixedHeight) {
     }
 }
 
-// D20 ŞEKLİ ÇİZEN FONKSİYON (Altıgen)
 function drawD20(ctx, x, y, size, color, val) {
     ctx.save(); 
     ctx.translate(x, y); 
@@ -37,22 +33,12 @@ function drawD20(ctx, x, y, size, color, val) {
     ctx.fillStyle = color; 
     ctx.strokeStyle = "white"; 
     ctx.lineWidth = 4;
-    
-    // Altıgen Şekli (D20 Görünümü)
     for (let i = 0; i < 6; i++) { 
         ctx.lineTo(size * Math.cos(i * Math.PI / 3 - Math.PI/6), size * Math.sin(i * Math.PI / 3 - Math.PI/6)); 
     }
-    
-    ctx.closePath(); 
-    ctx.fill(); 
-    ctx.stroke();
-    
-    ctx.fillStyle = "white"; 
-    ctx.font = "bold " + (size/1.5) + "px Arial"; 
-    ctx.textAlign = "center"; 
-    ctx.textBaseline = "middle"; 
-    ctx.fillText(val, 0, 0); 
-    ctx.restore();
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "white"; ctx.font = "bold " + (size/1.5) + "px Arial"; 
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(val, 0, 0); ctx.restore();
 }
 
 export function drawGame(ctx, canvas, socket) {
@@ -60,7 +46,6 @@ export function drawGame(ctx, canvas, socket) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // --- KAMERA ---
     ctx.save();
     const safeX = (Number.isFinite(mp.x)) ? mp.x : 1000;
     const safeY = (Number.isFinite(mp.y)) ? mp.y : 1000;
@@ -74,7 +59,6 @@ export function drawGame(ctx, canvas, socket) {
     ctx.translate(centerX + panX, centerY + panY);
     ctx.scale(scale, scale);
 
-    // Harita
     ctx.strokeStyle = "red"; ctx.lineWidth = 5; ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
     ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2;
     for(let i=0; i<=MAP_WIDTH; i+=100) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_HEIGHT); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_WIDTH, i); ctx.stroke(); }
@@ -85,40 +69,31 @@ export function drawGame(ctx, canvas, socket) {
     });
     state.diamonds.forEach(d => { ctx.fillStyle = d.color; ctx.fillRect(d.x - d.size/2, d.y - d.size/2, d.size, d.size); });
 
-    // --- MINIGAME (KIRMIZI PARLAMA EKLENDİ) ---
     if (state.minigame.active) {
-        // KÖTÜLER (Kırmızı Parlama)
         state.minigame.obstacles.forEach(obs => {
             if(!obs.hit) {
                 const img = obsImages[obs.imgIndex] || obsImages[0];
-                ctx.save(); 
-                ctx.shadowBlur = 20; 
-                ctx.shadowColor = "red"; // TEHLİKE RENGİ
+                ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "red"; 
                 obs.w = drawScaledImage(ctx, img, obs.x, obs.y, obs.h);
                 ctx.restore();
             }
         });
-        // İYİLER (Yeşil Parlama)
         state.minigame.collectibles.forEach(col => {
             if(!col.collected) {
                 const img = colImages[col.imgIndex] || colImages[0];
-                ctx.save(); 
-                ctx.shadowBlur = 20; 
-                ctx.shadowColor = "#00ff00"; 
+                ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "#00ff00"; 
                 col.w = drawScaledImage(ctx, img, col.x, col.y, col.h);
                 ctx.restore();
             }
         });
     }
 
-    // Uçan Yazılar
     for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
         let ft = state.floatingTexts[i];
         ctx.fillStyle = ft.color; ctx.font = "bold 24px Arial"; ctx.textAlign = "center"; ctx.fillText(ft.text, ft.x, ft.y);
         ft.y -= 2; ft.life--; if (ft.life <= 0) state.floatingTexts.splice(i, 1);
     }
 
-    // OYUNCULAR
     for (let id in state.players) {
         let p = state.players[id];
         if (!p) continue;
@@ -133,7 +108,7 @@ export function drawGame(ctx, canvas, socket) {
             px = safeX; py = safeY; 
             if (mp.nextClick === 2) {
                  ctx.save(); ctx.fillStyle = "yellow"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center";
-                 const dSize = Math.min((p.size || 20), 150);
+                 const dSize = Math.min((p.size || 20), 1000); // Limit arttı
                  ctx.fillText(`SAĞA ABAN! (${(2000 - (Date.now() - mp.comboTimer))/1000}s)`, px, py - dSize - 25); ctx.restore();
             }
         } 
@@ -145,8 +120,9 @@ export function drawGame(ctx, canvas, socket) {
 
         ctx.save(); ctx.translate(px, py);
 
+        // --- GÖRSEL LIMIT ARTIRILDI ---
         let realSize = (p.size && Number.isFinite(p.size) && p.size > 0) ? p.size : 20;
-        let drawSize = Math.min(realSize, 150); 
+        let drawSize = Math.min(realSize, 1000); // 150 yerine 1000 yaptık ki Titan gözüksün!
 
         ctx.fillStyle = p.color || '#fff'; 
         ctx.beginPath(); ctx.arc(0, 0, drawSize, 0, Math.PI*2); ctx.fill(); 
@@ -174,9 +150,7 @@ export function drawGame(ctx, canvas, socket) {
             ctx.beginPath(); ctx.moveTo(-10, -drawSize - 30); ctx.lineTo(10, -drawSize - 30); ctx.lineTo(0, -drawSize - 15); ctx.fillStyle = "white"; ctx.fill();
         }
         
-        // --- ZAR ÇİZİMİ (RENKLİ & ŞEKİLLİ) ---
         if (id === socket.id && state.showDice) { 
-            // Eğer kazandıysa YEŞİL, kaybettiyse KIRMIZI
             const diceColor = state.showDice.win ? '#00ff00' : '#ff0000';
             drawD20(ctx, 0, -250, 100, diceColor, state.showDice.roll); 
         }
@@ -187,10 +161,8 @@ export function drawGame(ctx, canvas, socket) {
     if (mp.playing) {
         const speedVal = Math.sqrt(mp.vx*mp.vx + mp.vy*mp.vy).toFixed(0);
         
-        // --- HUD DÜZELTMESİ (Kutu Büyüdü, Yazılar Sığdı) ---
         ctx.save(); 
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; 
-        // Genişliği 250'den 300'e çıkardım
         ctx.fillRect(10, 10, 300, 170);
         ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.strokeRect(10, 10, 300, 170);
         
@@ -201,7 +173,6 @@ export function drawGame(ctx, canvas, socket) {
         const comboColor = mp.momentum > 2.0 ? `hsl(${Date.now() % 360}, 100%, 70%)` : "orange";
         ctx.fillStyle = comboColor; ctx.font = "bold 24px Arial"; ctx.fillText(`KOMBO: x${mp.momentum.toFixed(2)}`, 25, 115);
         
-        // Yazıyı ortaladık ve kutuya göre hizaladık
         ctx.textAlign = "center"; ctx.font = "bold 14px Arial"; ctx.fillStyle = "#FFD700"; 
         ctx.fillText("SOL TIK + SAĞ TIK ABAN", 160, 145); 
         ctx.fillText("= AŞIRI HIZLAN! 🚀", 160, 160);
@@ -231,8 +202,6 @@ export function drawGame(ctx, canvas, socket) {
                 ctx.font = "bold 30px Arial"; ctx.fillStyle = "white";
                 ctx.fillText(`HAYATTA KAL: ${mg.timeLeft.toFixed(1)}s`, canvas.width/2, 60);
             }
-            
-            // SKOR TABLOSU DÜZELTMESİ (Artık Güncelleniyor)
             ctx.textAlign = "left"; ctx.fillStyle = "#00ff00"; ctx.font = "bold 30px Arial";
             ctx.fillText(`KAZANILAN: +${mg.sessionScoreGained}`, 20, canvas.height / 2);
             ctx.textAlign = "right"; ctx.fillStyle = "#ff0000"; 

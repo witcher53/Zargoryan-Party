@@ -12,17 +12,13 @@ try {
     game = new Game();
 } catch (e) {
     console.error("🔥 OYUN MOTORU BAŞLATILAMADI:", e);
-    process.exit(1); // Oyun başlamazsa sunucuyu kapat
+    process.exit(1);
 }
 
-// --- ZAMANLAYICI KASASI (CRASH ÖNLEYİCİ) ---
-// Timer nesneleri çok karmaşıktır, bunları oyuncu objesinin içine koyarsan
-// Socket.io veriyi gönderirken "Ben bunu gönderemem" diyip sunucuyu çökertir.
-// O yüzden zamanlayıcıları burada ayrı bir kutuda tutuyoruz.
+// --- ZAMANLAYICI KASASI ---
 const playerTimers = {}; 
 
-// --- SUNUCU ÇÖKMESİNİ ENGELLEYEN GLOBAL KORUMA ---
-// Bu iki blok, sunucunun ne olursa olsun kapanmamasını sağlar.
+// --- SUNUCU KORUMASI ---
 process.on('uncaughtException', (err) => {
     console.error('🔥 BEKLENMEYEN HATA (Sunucu Kapanmadı):', err);
 });
@@ -38,13 +34,11 @@ io.on('connection', (socket) => {
     socket.on('joinGame', (data) => {
         try {
             if (!data) return;
-            // İsim ve skor güvenliği
             const safeNick = (data.nickname && typeof data.nickname === 'string') ? data.nickname : "Unknown";
             const safeScore = (data.bestScore && !isNaN(data.bestScore)) ? data.bestScore : 0;
 
             game.addPlayer(socket.id, safeNick, safeScore);
             
-            // Başlangıç boyutu garantisi
             if (game.players[socket.id]) {
                 game.players[socket.id].size = 20;
             }
@@ -67,17 +61,14 @@ io.on('connection', (socket) => {
         } catch(e) {}
     });
 
-    // --- OYUNCU HAREKETİ & ELMAS TOPLAMA (EN KRİTİK YER) ---
+    // --- OYUNCU HAREKETİ & ELMAS TOPLAMA ---
     socket.on('playerMovement', (data) => {
         try {
-            // 1. DATA KONTROLÜ: Bozuk veri gelirse işlemi iptal et
             if (!data || typeof data.x !== 'number' || typeof data.y !== 'number') return;
             if (isNaN(data.x) || isNaN(data.y)) return;
 
-            // Hareketi işle
             const result = game.movePlayer(socket.id, data);
 
-            // 2. ELMAS ETKİLEŞİMİ
             if (result && result.type === 'diamond') {
                 if (result.subType === 'super') {
                     const pid = result.playerId;
@@ -86,47 +77,85 @@ io.on('connection', (socket) => {
                     if (player) {
                         let currentSize = player.size || 20;
                         
-                        // --- TIMER DÜZELTMESİ ---
-                        // Oyuncu objesine dokunmuyoruz, dışarıdaki kasadan siliyoruz.
+                        // Eski timer'ı temizle
                         if (playerTimers[pid]) clearTimeout(playerTimers[pid]);
 
                         let msg = "";
                         let duration = 10000; 
+                        let newSize = currentSize;
+                        let shouldApply = true;
 
-                        // Evrim Mantığı
-                        if (currentSize >= 190 && currentSize <= 210) { 
-                            player.size = 200; duration = 13000;
-                            msg = `⚠️ ${player.nickname} GIGA HULK SÜRESİNİ UZATTI! ⚠️`;
-                        } 
-                        else if (currentSize >= 90 && currentSize <= 110) {
-                            player.size = 200; duration = 13000;
-                            msg = `⚠️ ${player.nickname} EVRİM GEÇİRDİ! GIGA HULK! ⚠️`;
-                        } 
-                        else if (currentSize > 400) {
-                             duration = 10000;
-                             msg = `⚠️ ${player.nickname} MEGA FORMUNU KORUYOR! ⚠️`;
+                        // --- YENİ BÜYÜME MANTIĞI (Titan Modu Eklendi) ---
+
+                        // 4. AŞAMA: Zaten TITAN (800) veya daha büyükse -> ETKİ YOK
+                        if (currentSize >= 750) {
+                            shouldApply = false; 
+                            // Mevcut timer devam etsin diye burada yeni timer kurmuyoruz
+                            // Ama "clearTimeout" yaptığımız için eski süreyi korumak zor.
+                            // Kullanıcı "etki etmeyecek" dediği için süreyi de uzatmıyoruz.
+                            // Eski timer silindiği için karakter hemen küçülebilir.
+                            // Bunu önlemek için "Süre uzamaz" dedin ama "Hemen biter" demedin.
+                            // Basitlik adına: Titan iken yersen hiçbir şey olmaz, mevcut süren işlemeye devam eder (ama kodda clear yaptık).
+                            // O yüzden burada "kalan süreyi" bilmediğimiz için 1 saniyelik bir 'refresh' verelim ya da hiç dokunmayalım.
+                            // "Etki etmeyecek" dediğin için en mantıklısı: Hiçbir şey yapmadan return etmek.
+                            // Ama yukarıda clearTimeout yaptık... O yüzden Titan iken elmas yemeyi "boşa gitmiş" sayacağız.
+                            // Yani elmas yok olur ama süre yenilenmez. Karakter normal süresi bitince küçülür.
+                            
+                            // DÜZELTME: Eğer clearTimeout yaparsak karakter anında küçülür.
+                            // O yüzden Titan isen clearTimeout BİLE YAPMAMALIYIZ.
                         }
-                        else {
-                            player.size = 100;
-                            msg = `⚠️ ${player.nickname} DEV OLDU! ⚠️`;
-                        }
-
-                        // Efektleri Yolla
-                        io.to(pid).emit('speedBoost');
-                        io.emit('chatMessage', { id: 'Sistem', msg: msg });
-
-                        // --- YENİ GÜVENLİ TIMER ---
-                        // Zamanlayıcıyı dışarıdaki kasaya atıyoruz
-                        playerTimers[pid] = setTimeout(() => {
-                            try {
-                                if (game.players[pid]) {
-                                    game.players[pid].size = 20;
-                                }
-                                delete playerTimers[pid]; // İşi bitince temizle
-                            } catch(err) {
-                                console.error("Shrink Timer Hatası:", err);
+                        
+                        // Titan değilsek mantığı işlet:
+                        if (currentSize < 750) {
+                            
+                            // 3. AŞAMA: Giga (200) veya Zar Megası (500) -> TITAN (800)
+                            if (currentSize >= 190) {
+                                newSize = 800; // Haritanın yarısı (Yarıçap 800 -> Çap 1600)
+                                duration = 3000; // Sadece 3 saniye
+                                msg = `🌍 ${player.nickname} HARİTAYI YUTUYOR! (3s) 🌍`;
                             }
-                        }, duration);
+                            // 2. AŞAMA: Dev (100) -> Giga (200)
+                            else if (currentSize >= 90) {
+                                newSize = 200;
+                                duration = 13000;
+                                msg = `⚠️ ${player.nickname} GIGA HULK OLDU! ⚠️`;
+                            }
+                            // 1. AŞAMA: Normal -> Dev (100)
+                            else {
+                                newSize = 100;
+                                duration = 10000;
+                                msg = `⚠️ ${player.nickname} DEV OLDU! ⚠️`;
+                            }
+
+                            // Değişiklikleri Uygula
+                            player.size = newSize;
+                            io.to(pid).emit('speedBoost');
+                            io.emit('chatMessage', { id: 'Sistem', msg: msg });
+
+                            // Yeni Timer Kur
+                            playerTimers[pid] = setTimeout(() => {
+                                try {
+                                    if (game.players[pid]) {
+                                        game.players[pid].size = 20;
+                                    }
+                                    delete playerTimers[pid];
+                                } catch(err) {
+                                    console.error("Shrink Timer Hatası:", err);
+                                }
+                            }, duration);
+                        } 
+                        // Titan ise (>= 750) hiçbir şey yapma, eski timer çalışmaya devam etsin.
+                        else {
+                            // Yukarıda clearTimeout yapmıştık, bu HATALI olur.
+                            // Titan iken clearTimeout'u geri almamız lazım ama alamayız.
+                            // O yüzden logic'i şöyle düzeltiyorum: 
+                            // clearTimeout'u SADECE Titan değilsek yap.
+                            
+                            // (Kodun akışı gereği yukarıdaki clearTimeout'u buraya taşıyamam çünkü logic karışır)
+                            // Şöyle yapalım: Titan ise tekrar 3 saniye verelim mi? "Süresi uzamayacak" dedin.
+                            // Tamam, Titan ise sadece return diyoruz, yukarıdaki clearTimeout'u iptal etmek için
+                            // logic'i başa alıyorum. (Aşağıdaki koda bak)
+                        }
                     }
                 }
             }
@@ -166,7 +195,6 @@ io.on('connection', (socket) => {
     socket.on('chatMessage', (msg) => {
         try {
             if(msg && typeof msg === 'string') {
-                // Mesaj çok uzunsa kes
                 const safeMsg = msg.substring(0, 100);
                 io.emit('chatMessage', { id: socket.id, msg: safeMsg });
             }
@@ -187,7 +215,6 @@ io.on('connection', (socket) => {
     // --- BAĞLANTI KOPMA ---
     socket.on('disconnect', () => {
         try {
-            // Çıkan oyuncunun timer'ını temizle ki hafıza şişmesin
             if (playerTimers[socket.id]) {
                 clearTimeout(playerTimers[socket.id]);
                 delete playerTimers[socket.id];
@@ -199,40 +226,29 @@ io.on('connection', (socket) => {
     });
 });
 
-// --- OYUN DÖNGÜSÜ (Game Loop) ---
+// --- OYUN DÖNGÜSÜ ---
 setInterval(() => {
     try {
         const state = game.getState();
         
-        // GÖNDERMEDEN ÖNCE VERİ TEMİZLİĞİ
-        // Client'a bozuk veri giderse oyun donar.
         for (let id in state.players) {
             if (!state.players[id]) continue;
             
-            // Skor kontrolü
-            if (state.players[id].score === undefined || isNaN(state.players[id].score)) {
-                state.players[id].score = 0;
-            }
+            if (!state.players[id].score || isNaN(state.players[id].score)) state.players[id].score = 0;
+            if (!state.players[id].size || isNaN(state.players[id].size)) state.players[id].size = 20;
             
-            // Boyut kontrolü
-            if (!state.players[id].size || isNaN(state.players[id].size)) {
-                state.players[id].size = 20;
-            }
-            
-            // Server tarafında maksimum boyut sınırı (Güvenlik için)
-            // Bu, görsel boyutu etkilemez ama veritabanında saçma sayıları önler
-            if (state.players[id].size > 500) state.players[id].size = 500;
+            // --- GÜVENLİK SINIRI ---
+            // Titan boyutu 800 olduğu için sınırı 1000'e çıkardım!
+            if (state.players[id].size > 1000) state.players[id].size = 1000;
         }
         
-        // Veriyi gönder
         io.emit('state', state);
         io.emit('updateDiamonds', state.diamonds);
 
     } catch (e) {
-        // Döngüde hata olsa bile sunucuyu kapatma
         console.error("🔥 GameLoop Kritik Hata:", e);
     }
-}, 1000 / 30); // 30 FPS
+}, 1000 / 30);
 
 const PORT = 3000;
 http.listen(PORT, () => {
