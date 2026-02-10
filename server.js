@@ -16,7 +16,7 @@ try {
 }
 
 // --- ZAMANLAYICI KASASI ---
-const playerTimers = {}; 
+const playerTimers = {};
 
 // --- SUNUCU KORUMASI ---
 process.on('uncaughtException', (err) => {
@@ -37,7 +37,7 @@ io.on('connection', (socket) => {
             const safeScore = (data.bestScore && !isNaN(data.bestScore)) ? data.bestScore : 0;
 
             game.addPlayer(socket.id, safeNick, safeScore);
-            
+
             if (game.players[socket.id]) {
                 game.players[socket.id].size = 20;
             }
@@ -66,18 +66,18 @@ io.on('connection', (socket) => {
 
                     if (player) {
                         let currentSize = player.size || 20;
-                        
+
                         // Titan Modu Kontrolü (1000'den büyükse etki etme)
                         if (currentSize < 750) {
                             if (playerTimers[pid]) clearTimeout(playerTimers[pid]);
 
                             let msg = "";
-                            let duration = 10000; 
+                            let duration = 10000;
                             let newSize = currentSize;
 
                             // Büyüme Mantığı
                             if (currentSize >= 190) { // Giga -> Titan
-                                newSize = 800; 
+                                newSize = 800;
                                 duration = 3000;
                                 msg = `🌍 ${player.nickname} HARİTAYI YUTUYOR! (3s) 🌍`;
                             }
@@ -122,12 +122,12 @@ io.on('connection', (socket) => {
                 msg: `🎲 ${result.nickname} Zar: [${result.roll}] ${durum} ${result.extraMsg || ''}`
             });
         } else {
-            socket.emit('diceResult', null); 
+            socket.emit('diceResult', null);
         }
     });
 
     socket.on('chatMessage', (msg) => {
-        if(msg && typeof msg === 'string') io.emit('chatMessage', { id: socket.id, msg: msg.substring(0, 100) });
+        if (msg && typeof msg === 'string') io.emit('chatMessage', { id: socket.id, msg: msg.substring(0, 100) });
     });
 
     socket.on('claimAsReward', () => {
@@ -149,6 +149,12 @@ io.on('connection', (socket) => {
 
 // --- OYUN DÖNGÜSÜ ---
 setInterval(() => {
+    try {
+        // CUBE & CHUNK FİZİĞİ
+        game.updateCubePhysics();
+        game.updatePlayerCubeCollisions();
+    } catch (e) { console.error("Cube physics error:", e); }
+
     const state = game.getState();
     // Veri Temizliği
     for (let id in state.players) {

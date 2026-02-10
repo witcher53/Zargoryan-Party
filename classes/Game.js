@@ -1,5 +1,11 @@
 const Player = require('./Player');
 const Diamond = require('./Diamond');
+const Cube = require('./Cube');
+const Chunk = require('./Chunk');
+
+const CHUNK_TYPES = ['straight', 'straight', 'straight', 'slope_down', 'slope_down', 'slope_up'];
+const CHUNK_BUFFER_AHEAD = 8;
+const CHUNK_BUFFER_BEHIND = 3;
 
 class Game {
     constructor() {
@@ -14,10 +20,146 @@ class Game {
             { id: 0, x: 0, y: 0, w: 400, h: 400, color: '#e67e22', label: "ZAR ALANI" }
         ];
 
-        for(let i=0; i<30; i++) this.spawnDiamond('normal');
+        // Hamster Ball (Küp)
+        this.cube = new Cube();
+
+        // Sonsuz Yol
+        this.chunks = [];
+        this.generateInitialChunks();
+
+        for (let i = 0; i < 30; i++) this.spawnDiamond('normal');
         setInterval(() => { this.spawnDiamond('super'); }, 40000);
     }
 
+    // --- CHUNK GENERATION ---
+    generateInitialChunks() {
+        let startX = 0;
+        const trackY = 1000; // Yolun Y merkezi
+        for (let i = 0; i < 12; i++) {
+            const type = (i < 2) ? 'straight' : CHUNK_TYPES[Math.floor(Math.random() * CHUNK_TYPES.length)];
+            const chunk = new Chunk(startX, trackY, type);
+            this.chunks.push(chunk);
+            startX += chunk.length;
+        }
+    }
+
+    generateNextChunk() {
+        const last = this.chunks[this.chunks.length - 1];
+        const type = CHUNK_TYPES[Math.floor(Math.random() * CHUNK_TYPES.length)];
+        const chunk = new Chunk(last.x + last.length, last.y, type);
+        this.chunks.push(chunk);
+        return chunk;
+    }
+
+    removeOldChunks() {
+        // Küpün arkasında kalan chunk'ları sil
+        while (this.chunks.length > 0 && this.chunks[0].x + this.chunks[0].length < this.cube.x - 1500) {
+            this.chunks.shift();
+        }
+    }
+
+    // --- CUBE PHYSICS (Her tick çağrılır) ---
+    updateCubePhysics() {
+        // 1. Küpün üzerinde olduğu chunk'ı bul
+        for (const chunk of this.chunks) {
+            if (chunk.contains(this.cube.x, this.cube.y)) {
+                this.cube.applySlope(chunk.slopeForce);
+                break;
+            }
+        }
+
+        // 2. Küp fiziğini güncelle
+        this.cube.update();
+
+        // 3. Küpü yol içinde tut (Y ekseni sınırı)
+        const currentChunk = this.getChunkAt(this.cube.x, this.cube.y);
+        if (currentChunk) {
+            const halfW = currentChunk.width / 2;
+            const minY = currentChunk.y - halfW + this.cube.size / 2;
+            const maxY = currentChunk.y + halfW - this.cube.size / 2;
+            if (this.cube.y < minY) { this.cube.y = minY; this.cube.vy = Math.abs(this.cube.vy) * 0.7; }
+            if (this.cube.y > maxY) { this.cube.y = maxY; this.cube.vy = -Math.abs(this.cube.vy) * 0.7; }
+        }
+
+        // 4. Sonsuz yol: yeni chunk ekle, eskiyi sil
+        const lastChunk = this.chunks[this.chunks.length - 1];
+        while (this.cube.x > lastChunk.x - 2000) {
+            this.generateNextChunk();
+            if (this.chunks[this.chunks.length - 1].x > lastChunk.x + 5000) break;
+        }
+        this.removeOldChunks();
+    }
+
+    getChunkAt(x, y) {
+        for (const chunk of this.chunks) {
+            if (chunk.contains(x, y)) return chunk;
+        }
+        return this.chunks.length > 0 ? this.chunks[0] : null;
+    }
+
+    // --- PLAYER-CUBE COLLISION (Her tick çağrılır) ---
+    updatePlayerCubeCollisions() {
+        const half = this.cube.size / 2;
+        const cubeX = this.cube.x;
+        const cubeY = this.cube.y;
+
+        for (let id in this.players) {
+            const p = this.players[id];
+            if (!p) continue;
+
+            const pSize = p.size || 20;
+            const playerMass = Math.sqrt(pSize / 20);
+
+            // Oyuncunun küp içindeki relatif pozisyonu
+            const relX = p.x - cubeX;
+            const relY = p.y - cubeY;
+
+            // İç duvar sınırları
+            const innerLimit = half - pSize;
+            let hit = false;
+            let forceX = 0, forceY = 0;
+
+            // Sol duvar
+            if (relX < -innerLimit) {
+                forceX = (p.x - (cubeX - innerLimit)); // Negatif: sola itiyor
+                p.x = cubeX - innerLimit;
+                hit = true;
+            }
+            // Sağ duvar
+            if (relX > innerLimit) {
+                forceX = (p.x - (cubeX + innerLimit)); // Pozitif: sağa itiyor
+                p.x = cubeX + innerLimit;
+                hit = true;
+            }
+            // Üst duvar
+            if (relY < -innerLimit) {
+                forceY = (p.y - (cubeY - innerLimit));
+                p.y = cubeY - innerLimit;
+                hit = true;
+            }
+            // Alt duvar
+            if (relY > innerLimit) {
+                forceY = (p.y - (cubeY + innerLimit));
+                p.y = cubeY + innerLimit;
+                hit = true;
+            }
+
+            if (hit) {
+                // Momentum transfer: oyuncudan küpe
+                let multiplier = playerMass / this.cube.mass;
+
+                // TITAN MEKANİĞİ: Size > 190 ise kuvvet 10x
+                if (pSize > 190) multiplier *= 10;
+
+                // Oyuncunun hızından küpe kuvvet aktar
+                // forceX/Y negatifse oyuncu duvara doğru gidiyordu → küpü o yöne it
+                this.cube.vx += forceX * multiplier * 2;
+                this.cube.vy += forceY * multiplier * 2;
+            }
+        }
+    }
+
+    // --- MEVCUT METODLAR (DEĞİŞMEDİ) ---
     spawnDiamond(type) {
         if (this.diamonds.length < this.maxDiamonds) {
             this.diamonds.push(new Diamond(type));
@@ -25,16 +167,16 @@ class Game {
     }
 
     addPlayer(id, nickname, bestScore) {
-        // İsim ve skor kontrolü
         const safeNick = (nickname && typeof nickname === 'string') ? nickname.substring(0, 15) : "Unknown";
         const safeScore = (typeof bestScore === 'number' && !isNaN(bestScore)) ? bestScore : 0;
         this.players[id] = new Player(id, safeNick, safeScore);
+        // Oyuncuyu küpün merkezinde spawn et
+        this.players[id].x = this.cube.x;
+        this.players[id].y = this.cube.y;
     }
 
-    removePlayer(id) { 
-        if (this.players[id]) {
-            delete this.players[id]; 
-        }
+    removePlayer(id) {
+        if (this.players[id]) delete this.players[id];
     }
 
     applyPenalty(id, amount) {
@@ -48,19 +190,13 @@ class Game {
     movePlayer(id, data) {
         const player = this.players[id];
         if (player) {
-            // --- KRİTİK KORUMA: Bozuk Sayı Gelirse İşleme ---
             if (typeof data.x !== 'number' || isNaN(data.x) || typeof data.y !== 'number' || isNaN(data.y)) {
                 return null;
             }
 
-            // Sınır Kontrolü (Harita dışına çıkmayı sunucuda da engelle)
-            // Oyuncuyu harita sınırlarına hapseder
-            let safeX = Math.max(0, Math.min(data.x, this.mapWidth));
-            let safeY = Math.max(0, Math.min(data.y, this.mapHeight));
+            player.x = data.x;
+            player.y = data.y;
 
-            player.x = safeX;
-            player.y = safeY;
-            
             return this.checkCollisions(player);
         }
         return null;
@@ -71,7 +207,6 @@ class Game {
         if (!player) return null;
 
         const tent = this.tents[0];
-        // Çadırın içinde mi?
         if (player.x > tent.x && player.x < tent.x + tent.w &&
             player.y > tent.y && player.y < tent.y + tent.h) {
 
@@ -109,7 +244,6 @@ class Game {
     }
 
     checkCollisions(player) {
-        // Player size yoksa varsayılan 20 yap
         const pSize = player.size || 20;
 
         for (let i = this.diamonds.length - 1; i >= 0; i--) {
@@ -130,7 +264,13 @@ class Game {
     }
 
     getState() {
-        return { players: this.players, diamonds: this.diamonds, tents: this.tents };
+        return {
+            players: this.players,
+            diamonds: this.diamonds,
+            tents: this.tents,
+            cube: this.cube.getState(),
+            chunks: this.chunks.map(c => c.getState())
+        };
     }
 }
 module.exports = Game;

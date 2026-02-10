@@ -19,7 +19,7 @@ function drawScaledImage(ctx, img, x, y, fixedHeight) {
         const ratio = img.naturalWidth / img.naturalHeight;
         const newWidth = fixedHeight * ratio;
         ctx.drawImage(img, x, y, newWidth, fixedHeight);
-        return newWidth; 
+        return newWidth;
     } else {
         ctx.fillRect(x, y, fixedHeight, fixedHeight);
         return fixedHeight;
@@ -27,72 +27,200 @@ function drawScaledImage(ctx, img, x, y, fixedHeight) {
 }
 
 function drawD20(ctx, x, y, size, color, val) {
-    ctx.save(); 
-    ctx.translate(x, y); 
-    ctx.beginPath(); 
-    ctx.fillStyle = color; 
-    ctx.strokeStyle = "white"; 
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "white";
     ctx.lineWidth = 4;
-    for (let i = 0; i < 6; i++) { 
-        ctx.lineTo(size * Math.cos(i * Math.PI / 3 - Math.PI/6), size * Math.sin(i * Math.PI / 3 - Math.PI/6)); 
+    for (let i = 0; i < 6; i++) {
+        ctx.lineTo(size * Math.cos(i * Math.PI / 3 - Math.PI / 6), size * Math.sin(i * Math.PI / 3 - Math.PI / 6));
     }
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "white"; ctx.font = "bold " + (size/1.5) + "px Arial"; 
+    ctx.fillStyle = "white"; ctx.font = "bold " + (size / 1.5) + "px Arial";
     ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(val, 0, 0); ctx.restore();
+}
+
+// --- CHUNK ÇİZİMİ ---
+function drawChunks(ctx) {
+    state.chunks.forEach(chunk => {
+        const halfW = chunk.width / 2;
+
+        // Yol zemini
+        ctx.fillStyle = chunk.color;
+        ctx.fillRect(chunk.x, chunk.y - halfW, chunk.length, chunk.width);
+
+        // Yol kenar çizgileri
+        ctx.strokeStyle = '#ffffff33';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(chunk.x, chunk.y - halfW, chunk.length, chunk.width);
+
+        // Orta çizgi (kesikli)
+        ctx.save();
+        ctx.setLineDash([20, 20]);
+        ctx.strokeStyle = '#ffffff15';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(chunk.x, chunk.y);
+        ctx.lineTo(chunk.x + chunk.length, chunk.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // Eğim okları
+        if (chunk.type === 'slope_down') {
+            ctx.fillStyle = '#00ff0044';
+            for (let i = 0; i < 5; i++) {
+                const ax = chunk.x + (i + 0.5) * (chunk.length / 5);
+                drawArrow(ctx, ax, chunk.y, 1, '#00ff0066');
+            }
+        }
+        if (chunk.type === 'slope_up') {
+            ctx.fillStyle = '#ff000044';
+            for (let i = 0; i < 5; i++) {
+                const ax = chunk.x + (i + 0.5) * (chunk.length / 5);
+                drawArrow(ctx, ax, chunk.y, -1, '#ff000066');
+            }
+        }
+
+        // Chunk label
+        if (chunk.label) {
+            ctx.fillStyle = '#ffffff88';
+            ctx.font = 'bold 28px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(chunk.label, chunk.x + chunk.length / 2, chunk.y - halfW - 15);
+        }
+    });
+}
+
+function drawArrow(ctx, x, y, dir, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x + dir * 20, y);
+    ctx.lineTo(x - dir * 10, y - 12);
+    ctx.lineTo(x - dir * 10, y + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+}
+
+// --- KÜP (HAMSTER BALL) ÇİZİMİ ---
+function drawCube(ctx) {
+    const cube = state.cube;
+    if (!cube) return;
+
+    ctx.save();
+    ctx.translate(cube.x, cube.y);
+    ctx.rotate(cube.angle || 0);
+
+    const half = cube.size / 2;
+
+    // Dış kenar (kırmızı kare)
+    ctx.strokeStyle = '#e74c3c';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(-half, -half, cube.size, cube.size);
+
+    // İç parlak kenar
+    ctx.strokeStyle = '#ff6b6b44';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-half + 10, -half + 10, cube.size - 20, cube.size - 20);
+
+    // Çapraz çizgiler (küp hissi)
+    ctx.strokeStyle = '#ffffff11';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-half, -half); ctx.lineTo(half, half);
+    ctx.moveTo(half, -half); ctx.lineTo(-half, half);
+    ctx.stroke();
+
+    // Köşe noktaları
+    const dotSize = 8;
+    ctx.fillStyle = '#e74c3c';
+    ctx.fillRect(-half - dotSize / 2, -half - dotSize / 2, dotSize, dotSize);
+    ctx.fillRect(half - dotSize / 2, -half - dotSize / 2, dotSize, dotSize);
+    ctx.fillRect(-half - dotSize / 2, half - dotSize / 2, dotSize, dotSize);
+    ctx.fillRect(half - dotSize / 2, half - dotSize / 2, dotSize, dotSize);
+
+    ctx.restore();
 }
 
 export function drawGame(ctx, canvas, socket) {
     const mp = state.myPlayer;
+    const cube = state.cube;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     ctx.save();
-    const safeX = (Number.isFinite(mp.x)) ? mp.x : 1000;
-    const safeY = (Number.isFinite(mp.y)) ? mp.y : 1000;
 
-    const scale = Math.min(canvas.width / MAP_WIDTH, canvas.height / MAP_HEIGHT) * 1.2; 
-    const centerX = (canvas.width - MAP_WIDTH * scale) / 2;
-    const centerY = (canvas.height - MAP_HEIGHT * scale) / 2;
-    const panX = (1000 - safeX) * scale * 0.5;
-    const panY = (1000 - safeY) * scale * 0.5;
+    // --- KAMERA: KÜP'Ü TAKİP ET ---
+    const camX = (cube && Number.isFinite(cube.x)) ? cube.x : 1000;
+    const camY = (cube && Number.isFinite(cube.y)) ? cube.y : 1000;
 
-    ctx.translate(centerX + panX, centerY + panY);
-    ctx.scale(scale, scale);
+    const zoom = 0.6; // Sabit zoom (ileride dinamik yapılabilir)
+    const offsetX = (canvas.width / 2) - (camX * zoom);
+    const offsetY = (canvas.height / 2) - (camY * zoom);
+    ctx.setTransform(zoom, 0, 0, zoom, offsetX, offsetY);
 
-    ctx.strokeStyle = "red"; ctx.lineWidth = 5; ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2;
-    for(let i=0; i<=MAP_WIDTH; i+=100) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_HEIGHT); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_WIDTH, i); ctx.stroke(); }
+    // --- ARKA PLAN GRID ---
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 1;
+    const gridStart = Math.floor((camX - canvas.width / zoom) / 200) * 200;
+    const gridEnd = camX + canvas.width / zoom;
+    const gridYStart = Math.floor((camY - canvas.height / zoom) / 200) * 200;
+    const gridYEnd = camY + canvas.height / zoom;
+    for (let gx = gridStart; gx <= gridEnd; gx += 200) {
+        ctx.beginPath(); ctx.moveTo(gx, gridYStart); ctx.lineTo(gx, gridYEnd); ctx.stroke();
+    }
+    for (let gy = gridYStart; gy <= gridYEnd; gy += 200) {
+        ctx.beginPath(); ctx.moveTo(gridStart, gy); ctx.lineTo(gridEnd, gy); ctx.stroke();
+    }
 
-    state.tents.forEach(t => { 
+    // --- CHUNK'LARI ÇİZ (Yol) ---
+    drawChunks(ctx);
+
+    // --- ÇADIRLARI ÇİZ ---
+    state.tents.forEach(t => {
         ctx.fillStyle = t.color; ctx.fillRect(t.x, t.y, t.w, t.h);
-        ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = "bold 40px Arial"; ctx.textAlign = "center"; ctx.fillText(t.label, t.x + t.w/2, t.y - 20);
+        ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = "bold 40px Arial"; ctx.textAlign = "center"; ctx.fillText(t.label, t.x + t.w / 2, t.y - 20);
     });
-    state.diamonds.forEach(d => { ctx.fillStyle = d.color; ctx.fillRect(d.x - d.size/2, d.y - d.size/2, d.size, d.size); });
 
+    // --- ELMASLARI ÇİZ ---
+    state.diamonds.forEach(d => { ctx.fillStyle = d.color; ctx.fillRect(d.x - d.size / 2, d.y - d.size / 2, d.size, d.size); });
+
+    // --- KÜP'Ü ÇİZ ---
+    drawCube(ctx);
+
+    // --- MINIGAME ---
     if (state.minigame.active) {
         state.minigame.obstacles.forEach(obs => {
-            if(!obs.hit) {
+            if (!obs.hit) {
                 const img = obsImages[obs.imgIndex] || obsImages[0];
-                ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "red"; 
+                ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "red";
                 obs.w = drawScaledImage(ctx, img, obs.x, obs.y, obs.h);
                 ctx.restore();
             }
         });
         state.minigame.collectibles.forEach(col => {
-            if(!col.collected) {
+            if (!col.collected) {
                 const img = colImages[col.imgIndex] || colImages[0];
-                ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "#00ff00"; 
+                ctx.save(); ctx.shadowBlur = 20; ctx.shadowColor = "#00ff00";
                 col.w = drawScaledImage(ctx, img, col.x, col.y, col.h);
                 ctx.restore();
             }
         });
     }
 
+    // --- FLOATING TEXTS ---
     for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
         let ft = state.floatingTexts[i];
         ctx.fillStyle = ft.color; ctx.font = "bold 24px Arial"; ctx.textAlign = "center"; ctx.fillText(ft.text, ft.x, ft.y);
         ft.y -= 2; ft.life--; if (ft.life <= 0) state.floatingTexts.splice(i, 1);
     }
+
+    // --- OYUNCULARI ÇİZ ---
+    const safeX = (Number.isFinite(mp.x)) ? mp.x : 1000;
+    const safeY = (Number.isFinite(mp.y)) ? mp.y : 1000;
 
     for (let id in state.players) {
         let p = state.players[id];
@@ -104,38 +232,37 @@ export function drawGame(ctx, canvas, socket) {
         if (isNaN(p.targetY)) p.targetY = p.y;
 
         let px, py;
-        if (id === socket.id) { 
-            px = safeX; py = safeY; 
+        if (id === socket.id) {
+            px = safeX; py = safeY;
             if (mp.nextClick === 2) {
-                 ctx.save(); ctx.fillStyle = "yellow"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center";
-                 const dSize = Math.min((p.size || 20), 1000); // Limit arttı
-                 ctx.fillText(`SAĞA ABAN! (${(2000 - (Date.now() - mp.comboTimer))/1000}s)`, px, py - dSize - 25); ctx.restore();
+                ctx.save(); ctx.fillStyle = "yellow"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center";
+                const dSize = Math.min((p.size || 20), 1000);
+                ctx.fillText(`SAĞA ABAN! (${(2000 - (Date.now() - mp.comboTimer)) / 1000}s)`, px, py - dSize - 25); ctx.restore();
             }
-        } 
-        else { 
-            p.x = lerp(p.x, p.targetX, 0.2); 
-            p.y = lerp(p.y, p.targetY, 0.2); 
-            px = p.x; py = p.y; 
+        }
+        else {
+            p.x = lerp(p.x, p.targetX, 0.2);
+            p.y = lerp(p.y, p.targetY, 0.2);
+            px = p.x; py = p.y;
         }
 
         ctx.save(); ctx.translate(px, py);
 
-        // --- GÖRSEL LIMIT ARTIRILDI ---
         let realSize = (p.size && Number.isFinite(p.size) && p.size > 0) ? p.size : 20;
-        let drawSize = Math.min(realSize, 1000); // 150 yerine 1000 yaptık ki Titan gözüksün!
+        let drawSize = Math.min(realSize, 1000);
 
-        ctx.fillStyle = p.color || '#fff'; 
-        ctx.beginPath(); ctx.arc(0, 0, drawSize, 0, Math.PI*2); ctx.fill(); 
-        
+        ctx.fillStyle = p.color || '#fff';
+        ctx.beginPath(); ctx.arc(0, 0, drawSize, 0, Math.PI * 2); ctx.fill();
+
         if (realSize >= 100) {
-            ctx.strokeStyle = (realSize >= 200) ? "#FFD700" : "#ff0000"; 
+            ctx.strokeStyle = (realSize >= 200) ? "#FFD700" : "#ff0000";
             ctx.lineWidth = 5;
         } else {
-            ctx.strokeStyle = "white"; ctx.lineWidth = 2; 
+            ctx.strokeStyle = "white"; ctx.lineWidth = 2;
         }
         ctx.stroke();
-        
-        ctx.fillStyle = "white"; ctx.font = "bold 36px Arial"; ctx.textAlign = "center"; 
+
+        ctx.fillStyle = "white"; ctx.font = "bold 36px Arial"; ctx.textAlign = "center";
         ctx.fillText(`${p.nickname} (${p.score})`, 0, drawSize + 40);
 
         if (state.activeMessages[id]) {
@@ -143,44 +270,52 @@ export function drawGame(ctx, canvas, socket) {
             ctx.font = "bold 30px Arial";
             const textWidth = ctx.measureText(msg).width;
             ctx.fillStyle = "white"; ctx.strokeStyle = "#ccc"; ctx.lineWidth = 2;
-            ctx.fillRect(-(textWidth+40)/2, -drawSize - 80, textWidth+40, 50); 
-            ctx.strokeRect(-(textWidth+40)/2, -drawSize - 80, textWidth+40, 50);
-            ctx.fillStyle = "#333"; ctx.textBaseline = "middle"; 
+            ctx.fillRect(-(textWidth + 40) / 2, -drawSize - 80, textWidth + 40, 50);
+            ctx.strokeRect(-(textWidth + 40) / 2, -drawSize - 80, textWidth + 40, 50);
+            ctx.fillStyle = "#333"; ctx.textBaseline = "middle";
             ctx.fillText(msg, 0, -drawSize - 55);
             ctx.beginPath(); ctx.moveTo(-10, -drawSize - 30); ctx.lineTo(10, -drawSize - 30); ctx.lineTo(0, -drawSize - 15); ctx.fillStyle = "white"; ctx.fill();
         }
-        
-        if (id === socket.id && state.showDice) { 
+
+        if (id === socket.id && state.showDice) {
             const diceColor = state.showDice.win ? '#00ff00' : '#ff0000';
-            drawD20(ctx, 0, -250, 100, diceColor, state.showDice.roll); 
+            drawD20(ctx, 0, -250, 100, diceColor, state.showDice.roll);
         }
         ctx.restore();
     }
     ctx.restore();
 
+    // === HUD (Zoom'dan etkilenmez) ===
     if (mp.playing) {
-        const speedVal = Math.sqrt(mp.vx*mp.vx + mp.vy*mp.vy).toFixed(0);
-        
-        ctx.save(); 
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; 
-        ctx.fillRect(10, 10, 300, 170);
-        ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.strokeRect(10, 10, 300, 170);
-        
+        const speedVal = Math.sqrt(mp.vx * mp.vx + mp.vy * mp.vy).toFixed(0);
+
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(10, 10, 300, 190);
+        ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.strokeRect(10, 10, 300, 190);
+
         ctx.textAlign = "left";
         let pingColor = state.currentPing < 100 ? '#00ff00' : (state.currentPing < 200 ? 'yellow' : 'red');
         ctx.font = "bold 20px Arial"; ctx.fillStyle = pingColor; ctx.fillText(`PING: ${state.currentPing} ms`, 25, 45);
-        ctx.fillStyle = "#00ffff"; ctx.fillText(`HIZ: ${speedVal}`, 25, 80);
+        ctx.fillStyle = "#00ffff"; ctx.fillText(`HIZ: ${speedVal}`, 25, 75);
         const comboColor = mp.momentum > 2.0 ? `hsl(${Date.now() % 360}, 100%, 70%)` : "orange";
-        ctx.fillStyle = comboColor; ctx.font = "bold 24px Arial"; ctx.fillText(`KOMBO: x${mp.momentum.toFixed(2)}`, 25, 115);
-        
-        ctx.textAlign = "center"; ctx.font = "bold 14px Arial"; ctx.fillStyle = "#FFD700"; 
-        ctx.fillText("SOL TIK + SAĞ TIK ABAN", 160, 145); 
-        ctx.fillText("= AŞIRI HIZLAN! 🚀", 160, 160);
+        ctx.fillStyle = comboColor; ctx.font = "bold 24px Arial"; ctx.fillText(`KOMBO: x${mp.momentum.toFixed(2)}`, 25, 110);
+
+        // Küp hız göstergesi
+        if (cube) {
+            const cubeSpeed = Math.sqrt((cube.vx || 0) ** 2 + (cube.vy || 0) ** 2).toFixed(1);
+            ctx.fillStyle = '#e74c3c'; ctx.font = "bold 18px Arial";
+            ctx.fillText(`KÜP HIZ: ${cubeSpeed}`, 25, 140);
+        }
+
+        ctx.textAlign = "center"; ctx.font = "bold 14px Arial"; ctx.fillStyle = "#FFD700";
+        ctx.fillText("SOL TIK + SAĞ TIK ABAN", 160, 165);
+        ctx.fillText("= AŞIRI HIZLAN! 🚀", 160, 182);
         ctx.restore();
 
         if (state.showDice) {
             ctx.save(); ctx.textAlign = "left";
-            const x = 20, y = canvas.height - 110; 
+            const x = 20, y = canvas.height - 110;
             ctx.fillStyle = "rgba(0, 0, 0, 0.9)"; ctx.fillRect(x, y, 300, 90);
             ctx.strokeStyle = "gold"; ctx.lineWidth = 3; ctx.strokeRect(x, y, 300, 90);
             ctx.fillStyle = "white"; ctx.font = "bold 20px Arial";
@@ -197,14 +332,14 @@ export function drawGame(ctx, canvas, socket) {
             ctx.save(); ctx.textAlign = "center";
             if (mg.phase === 'countdown') {
                 ctx.font = "bold 40px Arial"; ctx.fillStyle = "red";
-                ctx.fillText(`⚠️ TEHLİKE GELİYOR: ${Math.ceil(mg.countdownVal)} ⚠️`, canvas.width/2, 80);
+                ctx.fillText(`⚠️ TEHLİKE GELİYOR: ${Math.ceil(mg.countdownVal)} ⚠️`, canvas.width / 2, 80);
             } else {
                 ctx.font = "bold 30px Arial"; ctx.fillStyle = "white";
-                ctx.fillText(`HAYATTA KAL: ${mg.timeLeft.toFixed(1)}s`, canvas.width/2, 60);
+                ctx.fillText(`HAYATTA KAL: ${mg.timeLeft.toFixed(1)}s`, canvas.width / 2, 60);
             }
             ctx.textAlign = "left"; ctx.fillStyle = "#00ff00"; ctx.font = "bold 30px Arial";
             ctx.fillText(`KAZANILAN: +${mg.sessionScoreGained}`, 20, canvas.height / 2);
-            ctx.textAlign = "right"; ctx.fillStyle = "#ff0000"; 
+            ctx.textAlign = "right"; ctx.fillStyle = "#ff0000";
             ctx.fillText(`KAYBEDİLEN: -${mg.sessionScoreLost}`, canvas.width - 20, canvas.height / 2);
             ctx.restore();
         }

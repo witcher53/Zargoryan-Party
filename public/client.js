@@ -39,11 +39,11 @@ socket.on('disconnect', () => {
 });
 
 // --- PING ---
-setInterval(() => { if(socket.connected) socket.emit('pingCheck', Date.now()); }, 2000);
+setInterval(() => { if (socket.connected) socket.emit('pingCheck', Date.now()); }, 2000);
 socket.on('pongCheck', (startTime) => {
     state.currentPing = Date.now() - startTime;
-    if(DOM.pingDisplay) DOM.pingDisplay.innerText = `Ping: ${state.currentPing} ms`;
-    if(socket.connected) socket.emit('updatePing', state.currentPing);
+    if (DOM.pingDisplay) DOM.pingDisplay.innerText = `Ping: ${state.currentPing} ms`;
+    if (socket.connected) socket.emit('updatePing', state.currentPing);
 });
 
 // --- MINIGAME TRIGGER ---
@@ -58,7 +58,7 @@ setInterval(() => {
 }, 60000);
 
 // --- GLOBAL FONKSİYONLAR ---
-window.startGame = function() {
+window.startGame = function () {
     const nick = DOM.nicknameInput.value;
     if (nick.trim()) {
         const savedBest = localStorage.getItem('zargoryan_best') || 0;
@@ -70,14 +70,14 @@ window.startGame = function() {
     }
 };
 
-window.clickAsButton = function() {
+window.clickAsButton = function () {
     const now = Date.now();
     if (now - state.lastAsTime < 120000) return;
     sendMessage('as'); socket.emit('claimAsReward');
     state.lastAsTime = now; DOM.asButton.style.display = 'none'; canvas.focus();
 };
 
-window.rollDice = function() {
+window.rollDice = function () {
     if (state.isRolling) return;
     state.diceCooldown = Date.now() + 5000;
     state.isRolling = true;
@@ -114,7 +114,7 @@ socket.on('diceResult', (res) => {
 });
 
 socket.on('speedBoost', () => {
-    if (state.myPlayer.speed < 40) { 
+    if (state.myPlayer.speed < 40) {
         state.myPlayer.speed = 40;
         setTimeout(() => state.myPlayer.speed = 10, 10000);
     }
@@ -138,6 +138,8 @@ socket.on('chatMessage', (data) => {
 socket.on('state', (serverState) => {
     if (!serverState || !serverState.players) return;
     state.tents = serverState.tents;
+    if (serverState.cube) state.cube = serverState.cube;
+    if (serverState.chunks) state.chunks = serverState.chunks;
     const serverPlayers = serverState.players;
 
     for (let id in serverPlayers) {
@@ -170,19 +172,19 @@ socket.on('state', (serverState) => {
                 `<div class="player-row"><span style="flex:1;">#${i + 1} ${p.nickname}</span><div style="text-align:right;"><span class="score">${p.score}</span><span class="best-score">🏆${p.bestScore}</span></div></div>`
             ).join('');
         }
-    } catch(e) {}
+    } catch (e) { }
     updateScoreBoard();
 });
 
 function updateScoreBoard() {
     try {
-        if(DOM.scoreBoard.style.display !== 'block') return;
+        if (DOM.scoreBoard.style.display !== 'block') return;
         const sorted = Object.values(state.players).sort((a, b) => b.score - a.score);
         DOM.scoreBoardBody.innerHTML = sorted.map(p => {
             let pingColor = p.ping > 100 ? (p.ping > 200 ? 'red' : 'yellow') : '#00ff00';
             return `<tr style="border-bottom:1px solid #444;"><td style="padding:5px;">${p.nickname}</td><td style="text-align:center; color:gold;">${p.score}</td><td style="text-align:center; color:#aaa;">${p.bestScore}</td><td style="text-align:right; color:${pingColor};">${p.ping || 0} ms</td></tr>`;
         }).join('');
-    } catch(e) {}
+    } catch (e) { }
 }
 
 document.addEventListener('keydown', (e) => {
@@ -191,7 +193,7 @@ document.addEventListener('keydown', (e) => {
         return;
     }
     if (e.key === 'Tab') {
-        e.preventDefault(); 
+        e.preventDefault();
         DOM.scoreBoard.style.display = 'block';
         updateScoreBoard();
         return;
@@ -228,10 +230,10 @@ function handleGamepadChat() {
     }
 
     if (state.isChatMenuOpen) {
-        if (gp.buttons[1].pressed && !state.buttonPressed) { sendMessage("sa"); state.isChatMenuOpen = false; DOM.gamepadChatMenu.style.display = 'none'; state.buttonPressed = true; } 
-        if (gp.buttons[2].pressed && !state.buttonPressed) { sendMessage("Ağla 😂"); state.buttonPressed = true; } 
-        if (gp.buttons[3].pressed && !state.buttonPressed) { sendMessage("Bol Şans"); state.buttonPressed = true; } 
-    } 
+        if (gp.buttons[1].pressed && !state.buttonPressed) { sendMessage("sa"); state.isChatMenuOpen = false; DOM.gamepadChatMenu.style.display = 'none'; state.buttonPressed = true; }
+        if (gp.buttons[2].pressed && !state.buttonPressed) { sendMessage("Ağla 😂"); state.buttonPressed = true; }
+        if (gp.buttons[3].pressed && !state.buttonPressed) { sendMessage("Bol Şans"); state.buttonPressed = true; }
+    }
     else {
         if (DOM.asButton.style.display === 'block' && gp.buttons[3].pressed && !state.buttonPressed) { clickAsButton(); state.buttonPressed = true; }
         if (DOM.rollDiceBtn.style.display === 'block' && gp.buttons[2].pressed && !state.buttonPressed) { rollDice(); state.buttonPressed = true; }
@@ -248,7 +250,7 @@ function gameLoop() {
     handleGamepadChat();
 
     if (state.myPlayer.playing && state.hasGivenSalute && !state.isChatMenuOpen && DOM.chatInputContainer.style.display === 'none') {
-        try { updatePhysics(socket, gp); } catch(e) { }
+        try { updatePhysics(socket, gp); } catch (e) { }
     }
 
     // Performance için DOM cache kullanımı
@@ -257,7 +259,7 @@ function gameLoop() {
         const mp = state.myPlayer;
         const px = Number.isFinite(mp.x) ? mp.x : 0;
         const py = Number.isFinite(mp.y) ? mp.y : 0;
-        const inside = px > t.x && px < t.x+t.w && py > t.y && py < t.y+t.h;
+        const inside = px > t.x && px < t.x + t.w && py > t.y && py < t.y + t.h;
         const isCooldownOver = Date.now() > state.diceCooldown;
         DOM.rollDiceBtn.style.display = (inside && !state.showDice && !state.isRolling && isCooldownOver) ? 'block' : 'none';
     }

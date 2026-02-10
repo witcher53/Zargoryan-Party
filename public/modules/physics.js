@@ -6,7 +6,7 @@ export function triggerRumble(gp, weak, strong, duration) {
             gp.vibrationActuator.playEffect("dual-rumble", {
                 startDelay: 0, duration: duration, weakMagnitude: weak, strongMagnitude: strong
             });
-        } catch(e) {}
+        } catch (e) { }
     }
 }
 
@@ -18,7 +18,7 @@ function updateMinigame(socket) {
     if (mg.phase === 'countdown') {
         const elapsed = (now - mg.startTime) / 1000;
         mg.countdownVal = 5 - elapsed;
-        
+
         if (mg.countdownVal <= 0) {
             mg.phase = 'active';
             mg.startTime = Date.now();
@@ -28,11 +28,11 @@ function updateMinigame(socket) {
             mg.sessionScoreLost = 0;
             state.floatingTexts.push({ x: mp.x, y: mp.y - 100, text: 'KAÇ VE TOPLA!', color: '#00ff00', life: 60 });
         }
-        return; 
+        return;
     }
 
-    mg.timeLeft = Math.max(0, 20 - (now - mg.startTime) / 1000); 
-    
+    mg.timeLeft = Math.max(0, 20 - (now - mg.startTime) / 1000);
+
     if (mg.timeLeft <= 0) {
         mg.active = false;
         state.floatingTexts.push({ x: mp.x, y: mp.y, text: 'TUR BİTTİ!', color: '#00ff00', life: 60 });
@@ -40,10 +40,10 @@ function updateMinigame(socket) {
     }
 
     // --- DAHA AZ AMA ÖZ ENGEL ---
-    if (Math.random() < 0.02) { 
+    if (Math.random() < 0.02) {
         mg.obstacles.push({ x: Math.random() * MAP_WIDTH, y: -150, w: 120, h: 120, vy: Math.random() * 3 + 4, hit: false, imgIndex: Math.floor(Math.random() * 3) });
     }
-    else if (Math.random() < 0.03) { 
+    else if (Math.random() < 0.03) {
         mg.collectibles.push({ x: Math.random() * MAP_WIDTH, y: -150, w: 100, h: 100, vy: Math.random() * 2 + 3, collected: false, imgIndex: Math.floor(Math.random() * 3) });
     }
 
@@ -52,14 +52,14 @@ function updateMinigame(socket) {
         let obs = mg.obstacles[i];
         obs.y += obs.vy;
         const pSize = (mp.size && !isNaN(mp.size)) ? mp.size : 20;
-        
+
         if (!obs.hit && !isNaN(mp.x) && !isNaN(mp.y) &&
             mp.x < obs.x + obs.w && mp.x + pSize > obs.x &&
             mp.y < obs.y + obs.h && mp.y + pSize > obs.y
         ) {
             obs.hit = true;
-            socket.emit('minigamePenalty', 50); 
-            mg.sessionScoreLost += 50; 
+            socket.emit('minigamePenalty', 50);
+            mg.sessionScoreLost += 50;
             state.floatingTexts.push({ x: mp.x, y: mp.y, text: '-50 DARBE!', color: 'red', life: 30 });
             triggerRumble(null, 1.0, 1.0, 300);
         }
@@ -71,20 +71,20 @@ function updateMinigame(socket) {
         let col = mg.collectibles[i];
         col.y += col.vy;
         const pSize = (mp.size && !isNaN(mp.size)) ? mp.size : 20;
-        
+
         if (!col.collected && !isNaN(mp.x) && !isNaN(mp.y) &&
             mp.x < col.x + col.w && mp.x + pSize > col.x &&
             mp.y < col.y + col.h && mp.y + pSize > col.y
         ) {
             col.collected = true;
-            socket.emit('claimAsReward'); socket.emit('claimAsReward'); 
+            socket.emit('claimAsReward'); socket.emit('claimAsReward');
             mg.sessionScoreGained += 100;
             state.floatingTexts.push({ x: mp.x, y: mp.y - 50, text: '+100 ALDIN!', color: '#00ff00', life: 40 });
             triggerRumble(null, 0.5, 0.5, 100);
         }
         if (col.y > MAP_HEIGHT) {
             if (!col.collected) {
-                socket.emit('minigamePenalty', 5); 
+                socket.emit('minigamePenalty', 5);
                 mg.sessionScoreLost += 5;
                 state.floatingTexts.push({ x: col.x, y: MAP_HEIGHT - 50, text: '-5 KAÇTI!', color: 'orange', life: 30 });
             }
@@ -105,7 +105,7 @@ export function updatePhysics(socket, gp) {
     if (!mp.speed) mp.speed = 10;
 
     let ax = 0, ay = 0;
-    
+
     // INPUTS
     if (gp) {
         if (Math.abs(gp.axes[0]) > 0.1) ax = gp.axes[0];
@@ -130,7 +130,7 @@ export function updatePhysics(socket, gp) {
     }
 
     // MOMENTUM AZALMASI
-    mp.momentum *= 0.997; 
+    mp.momentum *= 0.997;
     if (mp.momentum < 1.0) mp.momentum = 1.0;
 
     if (mp.nextClick === 2 && Date.now() - mp.comboTimer > 2000) {
@@ -167,7 +167,7 @@ export function updatePhysics(socket, gp) {
     // --- HIZ LİMİTİ ---
     const maxSpeedLimit = 45 * mp.momentum / mass;
     const currentSpeed = Math.sqrt(mp.vx * mp.vx + mp.vy * mp.vy);
-    
+
     if (currentSpeed > maxSpeedLimit && currentSpeed > 0 && Number.isFinite(currentSpeed)) {
         const ratio = maxSpeedLimit / currentSpeed;
         if (!isNaN(ratio) && Number.isFinite(ratio)) {
@@ -187,41 +187,41 @@ export function updatePhysics(socket, gp) {
     let nextX = mp.x + mp.vx;
     let nextY = mp.y + mp.vy;
 
-    // --- HITBOX BUG FIX ---
-    // Artık 'r' gerçek boyuttur.
-    const r = visualSize; 
-    const pushBuffer = r + 2;
-    
-    // --- ELASTİK DUVAR (Enerji Koruması) ---
-    // Duvara çarpınca hızın %95'i ile sekersin.
-    const BOUNCE = 0.95; 
+    // --- HITBOX ---
+    const r = visualSize;
 
-    // Sınır Kontrolleri
-    if (nextX < r) { 
-        nextX = r; 
+    // --- OYUNCU KÜP İÇİNDE HAPSOLMUŞ ---
+    // Artık harita sınırları değil, KÜP'ün iç duvarları sınır.
+    // Sunucu tarafında momentum transferi yapılıyor (Game.js).
+    // Client tarafında sadece pozisyon clamp + bounce.
+    const cube = state.cube;
+    const cubeHalf = (cube ? cube.size / 2 : 150);
+    const cubeX = (cube ? cube.x : 1000);
+    const cubeY = (cube ? cube.y : 1000);
+    const innerLimit = cubeHalf - r;
+    const BOUNCE = 0.95;
+
+    // Küpün iç duvarlarına çarpma
+    if (nextX < cubeX - innerLimit) {
+        nextX = cubeX - innerLimit;
         mp.vx = Math.abs(mp.vx) * BOUNCE;
         triggerRumble(gp, 0.8, 1.0, 200);
     }
-    if (nextX > MAP_WIDTH - r) { 
-        nextX = MAP_WIDTH - r; 
+    if (nextX > cubeX + innerLimit) {
+        nextX = cubeX + innerLimit;
         mp.vx = -Math.abs(mp.vx) * BOUNCE;
         triggerRumble(gp, 0.8, 1.0, 200);
     }
-    if (nextY < r) { 
-        nextY = r; 
+    if (nextY < cubeY - innerLimit) {
+        nextY = cubeY - innerLimit;
         mp.vy = Math.abs(mp.vy) * BOUNCE;
         triggerRumble(gp, 0.8, 1.0, 200);
     }
-    if (nextY > MAP_HEIGHT - r) { 
-        nextY = MAP_HEIGHT - r; 
+    if (nextY > cubeY + innerLimit) {
+        nextY = cubeY + innerLimit;
         mp.vy = -Math.abs(mp.vy) * BOUNCE;
         triggerRumble(gp, 0.8, 1.0, 200);
     }
-
-    // --- TİTAN SIKIŞMA KORUMASI ---
-    // Eğer karakter haritadan büyükse merkeze sabitle
-    if (r >= MAP_WIDTH / 2) nextX = MAP_WIDTH / 2;
-    if (r >= MAP_HEIGHT / 2) nextY = MAP_HEIGHT / 2;
 
     if (!isNaN(nextX) && !isNaN(nextY) && Number.isFinite(nextX) && Number.isFinite(nextY)) {
         if (Math.abs(mp.x - nextX) > 0.01 || Math.abs(mp.y - nextY) > 0.01) {
@@ -235,33 +235,33 @@ export function updatePhysics(socket, gp) {
     // ELMAS TOPLAMA
     for (let i = state.diamonds.length - 1; i >= 0; i--) {
         const d = state.diamonds[i];
-        if (!d) continue; 
-        const dist = Math.sqrt((mp.x - d.x)**2 + (mp.y - d.y)**2);
-        if (!isNaN(dist) && dist < visualSize + d.size) { 
+        if (!d) continue;
+        const dist = Math.sqrt((mp.x - d.x) ** 2 + (mp.y - d.y) ** 2);
+        if (!isNaN(dist) && dist < visualSize + d.size) {
             state.collectedIds.push(d.id);
             if (d.type === 'super') {
-                triggerRumble(gp, 1.0, 1.0, 500); 
+                triggerRumble(gp, 1.0, 1.0, 500);
                 state.floatingTexts.push({ x: d.x, y: d.y, text: 'GÜÇ!', color: 'red', life: 60 });
             } else {
-                triggerRumble(gp, 0.2, 0.0, 100); 
+                triggerRumble(gp, 0.2, 0.0, 100);
                 state.floatingTexts.push({ x: d.x, y: d.y, text: '+10', color: '#00ffff', life: 30 });
             }
-            state.diamonds.splice(i, 1); 
+            state.diamonds.splice(i, 1);
         }
     }
 }
 
 function handleComboInput(btnCode, mp) {
     if (btnCode === mp.nextClick) {
-        if (btnCode === 0) { 
-            mp.nextClick = 2; mp.comboTimer = Date.now(); 
+        if (btnCode === 0) {
+            mp.nextClick = 2; mp.comboTimer = Date.now();
             state.floatingTexts.push({ x: mp.x, y: mp.y - 40, text: 'SAĞA ABAN! ->', color: 'yellow', life: 20 });
-        } else if (btnCode === 2) { 
+        } else if (btnCode === 2) {
             if (Date.now() - mp.comboTimer < 2000) {
-                mp.momentum += 0.8; 
+                mp.momentum += 0.8;
                 if (mp.momentum > mp.maxMomentum) mp.momentum = mp.maxMomentum;
                 state.floatingTexts.push({ x: mp.x, y: mp.y - 50, text: 'HIZLANDIN! 🔥', color: '#00ff00', life: 40 });
-                mp.nextClick = 0; 
+                mp.nextClick = 0;
             } else {
                 mp.nextClick = 0; mp.momentum = 1.0;
                 state.floatingTexts.push({ x: mp.x, y: mp.y - 40, text: 'YAVAŞSIN!', color: 'red', life: 30 });
