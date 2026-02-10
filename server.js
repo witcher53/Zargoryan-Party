@@ -41,7 +41,8 @@ io.on('connection', (socket) => {
             if (game.players[socket.id]) {
                 game.players[socket.id].size = 20;
             }
-            socket.emit('initDiamonds', game.diamonds);
+            // OPTIMIZED INIT: Send full state (static + dynamic)
+            socket.emit('init', game.getInitialState());
         } catch (e) { console.error(`Join Hata:`, e); }
     });
 
@@ -148,6 +149,8 @@ io.on('connection', (socket) => {
 });
 
 // --- OYUN DÖNGÜSÜ ---
+// --- OYUN DÖNGÜSÜ (30Hz) ---
+let tickCount = 0;
 setInterval(() => {
     try {
         // CUBE & CHUNK FİZİĞİ
@@ -155,16 +158,25 @@ setInterval(() => {
         game.updatePlayerCubeCollisions();
     } catch (e) { console.error("Cube physics error:", e); }
 
-    const state = game.getState();
-    // Veri Temizliği
-    for (let id in state.players) {
-        if (!state.players[id]) continue;
-        if (!state.players[id].score) state.players[id].score = 0;
-        if (!state.players[id].size) state.players[id].size = 20;
-        if (state.players[id].size > 1000) state.players[id].size = 1000;
+    // Veri Temizliği (Her frame'de yapmak güvenli)
+    const players = game.players;
+    for (let id in players) {
+        if (!players[id]) continue;
+        if (!players[id].score) players[id].score = 0;
+        if (!players[id].size) players[id].size = 20;
+        if (players[id].size > 1000) players[id].size = 1000;
     }
-    io.emit('state', state);
-    io.emit('updateDiamonds', state.diamonds);
+
+    // 1. DYNAMIC UPDATE (Her tick - 30Hz)
+    // Sadece oyuncular ve küp pozisyonu
+    io.emit('dynamicUpdate', game.getDynamicState());
+
+    // 2. STATIC UPDATE (Her 60 tick - 2 saniye)
+    // Chunklar, çadır, elmaslar (Ağır veri)
+    tickCount++;
+    if (tickCount % 60 === 0) {
+        io.emit('staticUpdate', game.getStaticState());
+    }
 }, 1000 / 30);
 
 const PORT = 3000;

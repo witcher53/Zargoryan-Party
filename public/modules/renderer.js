@@ -382,3 +382,4 @@ export function drawGame(ctx, canvas, socket) {
         }
     }
 }
+

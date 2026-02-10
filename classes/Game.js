@@ -367,13 +367,36 @@ class Game {
         return null;
     }
 
-    getState() {
+    // === NETWORK OPTIMIZATION: STATE SPLITTING ===
+
+    // 1. DÜŞÜK BANDWIDTH (30Hz) - Sadece hareketli veriler
+    getDynamicState() {
         return {
             players: this.players,
-            diamonds: [],
-            tents: [],
-            cube: this.cube.getState(),
-            chunks: this.chunks.map(c => c.getState())
+            cube: {
+                x: this.cube.x, y: this.cube.y,
+                vx: this.cube.vx, vy: this.cube.vy,
+                angle: this.cube.angle,
+                angularVel: this.cube.angularVel
+            }
+        };
+    }
+
+    // 2. YÜKSEK BANDWIDTH (Event-Based) - Sadece değişince
+    getStaticState() {
+        return {
+            chunks: this.chunks.map(c => c.getState()),
+            tent: this.cube.tent,
+            localDiamonds: this.cube.localDiamonds,
+            cubeSize: this.cube.size
+        };
+    }
+
+    // 3. İLK BAĞLANTI (Full State)
+    getInitialState() {
+        return {
+            dynamic: this.getDynamicState(),
+            static: this.getStaticState()
         };
     }
 }

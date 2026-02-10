@@ -147,47 +147,82 @@ socket.on('chatMessage', (data) => {
     }
 });
 
-socket.on('state', (serverState) => {
-    if (!serverState || !serverState.players) return;
-    state.tents = serverState.tents || [];
-    if (serverState.cube) {
-        state.cube = serverState.cube;
-        // Elmasları cube.localDiamonds'tan al, collectedIds'e göre filtrele
-        if (serverState.cube.localDiamonds) {
-            state.diamonds = serverState.cube.localDiamonds.filter(d => !state.collectedIds.includes(d.id));
-            state.collectedIds = state.collectedIds.filter(ghostId =>
-                serverState.cube.localDiamonds.some(sd => sd.id === ghostId)
-            );
-        }
+// --- NETWORK OPTIMIZATION HANDLERS ---
+socket.on('init', (fullState) => {
+    if (!fullState || !fullState.dynamic || !fullState.static) return;
+    handleStaticState(fullState.static);
+    handleDynamicState(fullState.dynamic);
+});
+
+socket.on('staticUpdate', (staticState) => {
+    handleStaticState(staticState);
+});
+
+socket.on('dynamicUpdate', (dynamicState) => {
+    handleDynamicState(dynamicState);
+});
+
+// Eski 'state' handler'ı (geriye dönük uyumluluk için, gerekirse silinebilir)
+socket.on('state', (s) => {
+    if (s.players) handleDynamicState({ players: s.players, cube: s.cube });
+    if (s.chunks) handleStaticState({ chunks: s.chunks, tent: s.tents ? s.tents[0] : null, localDiamonds: s.diamonds });
+});
+
+function handleStaticState(s) {
+    if (!s) return;
+    if (s.chunks) state.chunks = s.chunks;
+    if (s.tent) state.tents = [s.tent]; // Client array bekliyor olabilir, şimdilik array yap
+    if (s.localDiamonds) {
+        // Elmasları senkronize et ve toplananları filtrele
+        state.diamonds = s.localDiamonds.filter(d => !state.collectedIds.includes(d.id));
+        // Server'da toplanmış olanları local collectedIds'den temizle (opsiyonel memory leak önlemi)
     }
-    if (serverState.chunks) state.chunks = serverState.chunks;
-    const serverPlayers = serverState.players;
+    if (s.cubeSize && state.cube) state.cube.size = s.cubeSize;
+}
+
+function handleDynamicState(d) {
+    if (!d) return;
+    if (d.cube) {
+        // Mevcut cube state'ini koru (tent/diamonds silinmesin diye merge et)
+        if (!state.cube) state.cube = d.cube;
+        else Object.assign(state.cube, d.cube);
+    }
+
+    const serverPlayers = d.players;
+    if (!serverPlayers) return;
 
     for (let id in serverPlayers) {
         const sp = serverPlayers[id];
-        if (!sp || typeof sp.score === 'undefined') continue;
+        if (!sp) continue;
 
         if (!state.players[id]) {
             state.players[id] = sp;
         } else {
+            // Sadece değişen verileri güncelle
             Object.assign(state.players[id], {
                 targetX: sp.x, targetY: sp.y, score: sp.score, size: sp.size,
-                bestScore: sp.bestScore, ping: sp.ping, nickname: sp.nickname, color: sp.color
+                bestScore: sp.bestScore, ping: sp.ping, nickname: sp.nickname, color: sp.color,
+                vx: sp.vx, vy: sp.vy, momentum: sp.momentum // Prediction için hız verileri
             });
-            if (id === socket.id) state.myPlayer.size = sp.size;
+            if (id === socket.id && sp.size) state.myPlayer.size = sp.size;
         }
     }
-    for (let id in state.players) if (!serverPlayers[id]) delete state.players[id];
+    // Oyundan çıkanları sil
+    for (let id in state.players) if (serverPlayers && !serverPlayers[id]) delete state.players[id];
 
+    // Liderlik tablosunu güncelle
+    updateLeaderboard();
+}
+
+function updateLeaderboard() {
     if (state.players[socket.id]) {
         const score = state.players[socket.id].score;
         if (score > (parseInt(localStorage.getItem('zargoryan_best') || 0))) localStorage.setItem('zargoryan_best', score);
     }
-
     try {
         if (DOM.lbContent) {
             const sorted = Object.values(state.players)
-                .filter(p => p && typeof p.score === 'number' && !isNaN(p.score))
+                .filter(p => p && typeof p.score === 'number')
                 .sort((a, b) => b.score - a.score).slice(0, 10);
             DOM.lbContent.innerHTML = sorted.map((p, i) =>
                 `<div class="player-row"><span style="flex:1;">#${i + 1} ${p.nickname}</span><div style="text-align:right;"><span class="score">${p.score}</span><span class="best-score">🏆${p.bestScore}</span></div></div>`
@@ -195,7 +230,7 @@ socket.on('state', (serverState) => {
         }
     } catch (e) { }
     updateScoreBoard();
-});
+}
 
 function updateScoreBoard() {
     try {

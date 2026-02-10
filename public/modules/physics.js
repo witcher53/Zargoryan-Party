@@ -223,35 +223,62 @@ export function updatePhysics(socket, gp) {
     let nextX = mp.x + mp.vx;
     let nextY = mp.y + mp.vy;
 
-    // --- OYUNCU KÜP İÇİNDE ---
+    // --- OYUNCU KÜP İÇİNDE (DÖNEN HİTBOX — SERVER İLE AYNI LOJİK) ---
     const r = visualSize;
     const cube = state.cube;
     const cubeHalf = (cube ? cube.size / 2 : 1500);
     const cubeX = (cube ? cube.x : 1000);
     const cubeY = (cube ? cube.y : 1000);
+    const cubeAngle = (cube ? (cube.angle || 0) : 0);
     const innerLimit = cubeHalf - r;
     const BOUNCE = 0.95;
 
-    if (nextX < cubeX - innerLimit) {
-        nextX = cubeX - innerLimit;
-        mp.vx = Math.abs(mp.vx) * BOUNCE;
-        triggerRumble(gp, 0.8, 1.0, 200);
+    // STEP 1-2: World → Cube Lokal Uzay (ters döndürme: -angle)
+    const cosA = Math.cos(-cubeAngle);
+    const sinA = Math.sin(-cubeAngle);
+    const dx = nextX - cubeX;
+    const dy = nextY - cubeY;
+    let localX = dx * cosA - dy * sinA;
+    let localY = dx * sinA + dy * cosA;
+
+    // Hızı da lokal uzaya çevir (bounce için)
+    let localVx = mp.vx * cosA - mp.vy * sinA;
+    let localVy = mp.vx * sinA + mp.vy * cosA;
+
+    let hit = false;
+
+    // STEP 3: Lokal uzayda AABB clamp
+    if (localX < -innerLimit) {
+        localX = -innerLimit;
+        localVx = Math.abs(localVx) * BOUNCE;
+        hit = true;
+    } else if (localX > innerLimit) {
+        localX = innerLimit;
+        localVx = -Math.abs(localVx) * BOUNCE;
+        hit = true;
     }
-    if (nextX > cubeX + innerLimit) {
-        nextX = cubeX + innerLimit;
-        mp.vx = -Math.abs(mp.vx) * BOUNCE;
-        triggerRumble(gp, 0.8, 1.0, 200);
+
+    if (localY < -innerLimit) {
+        localY = -innerLimit;
+        localVy = Math.abs(localVy) * BOUNCE;
+        hit = true;
+    } else if (localY > innerLimit) {
+        localY = innerLimit;
+        localVy = -Math.abs(localVy) * BOUNCE;
+        hit = true;
     }
-    if (nextY < cubeY - innerLimit) {
-        nextY = cubeY - innerLimit;
-        mp.vy = Math.abs(mp.vy) * BOUNCE;
-        triggerRumble(gp, 0.8, 1.0, 200);
-    }
-    if (nextY > cubeY + innerLimit) {
-        nextY = cubeY + innerLimit;
-        mp.vy = -Math.abs(mp.vy) * BOUNCE;
-        triggerRumble(gp, 0.8, 1.0, 200);
-    }
+
+    // STEP 4-5: Lokal → World geri döndür (+angle)
+    const cosB = Math.cos(cubeAngle);
+    const sinB = Math.sin(cubeAngle);
+    nextX = cubeX + localX * cosB - localY * sinB;
+    nextY = cubeY + localX * sinB + localY * cosB;
+
+    // Hızı da world'e geri döndür
+    mp.vx = localVx * cosB - localVy * sinB;
+    mp.vy = localVx * sinB + localVy * cosB;
+
+    if (hit) triggerRumble(gp, 0.8, 1.0, 200);
 
     if (!isNaN(nextX) && !isNaN(nextY) && Number.isFinite(nextX) && Number.isFinite(nextY)) {
         if (Math.abs(mp.x - nextX) > 0.01 || Math.abs(mp.y - nextY) > 0.01) {
