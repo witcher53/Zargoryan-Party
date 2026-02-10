@@ -191,9 +191,16 @@ class Game {
         }
     }
 
-    // === PLAYER-CUBE COLLISION + COOPERATIVE FORCE ===
+    // === PLAYER-CUBE COLLISION + COOPERATIVE FORCE (ROTATING HITBOX) ===
     updatePlayerCubeCollisions() {
         const half = this.cube.size / 2;
+        const angle = this.cube.angle || 0;
+        const cosA = Math.cos(-angle);  // İnverse rotation (world → local)
+        const sinA = Math.sin(-angle);
+        const cosB = Math.cos(angle);   // Forward rotation (local → world)
+        const sinB = Math.sin(angle);
+        const cx = this.cube.x;
+        const cy = this.cube.y;
 
         // Force Accumulator — tüm oyuncuların kuvveti toplanır
         let totalFx = 0;
@@ -205,45 +212,54 @@ class Game {
 
             const pSize = p.size || 20;
             const force = getPlayerForce(pSize);
-
-            const relX = p.x - this.cube.x;
-            const relY = p.y - this.cube.y;
             const innerLimit = half - pSize;
 
+            // STEP 1-2: World → Cube Lokal Uzay (ters döndürme)
+            const dx = p.x - cx;
+            const dy = p.y - cy;
+            let localX = dx * cosA - dy * sinA;
+            let localY = dx * sinA + dy * cosA;
+
+            // STEP 3: Lokal uzayda AABB clamp
             let hitX = false, hitY = false;
-            let dirX = 0, dirY = 0;
+            let localDirX = 0, localDirY = 0;
 
-            // Sol duvar
-            if (relX < -innerLimit) {
-                dirX = -1;
-                p.x = this.cube.x - innerLimit;
+            if (localX < -innerLimit) {
+                localDirX = -1;
+                localX = -innerLimit;
+                hitX = true;
+            } else if (localX > innerLimit) {
+                localDirX = 1;
+                localX = innerLimit;
                 hitX = true;
             }
-            // Sağ duvar
-            if (relX > innerLimit) {
-                dirX = 1;
-                p.x = this.cube.x + innerLimit;
-                hitX = true;
-            }
-            // Üst duvar
-            if (relY < -innerLimit) {
-                dirY = -1;
-                p.y = this.cube.y - innerLimit;
+
+            if (localY < -innerLimit) {
+                localDirY = -1;
+                localY = -innerLimit;
                 hitY = true;
-            }
-            // Alt duvar
-            if (relY > innerLimit) {
-                dirY = 1;
-                p.y = this.cube.y + innerLimit;
+            } else if (localY > innerLimit) {
+                localDirY = 1;
+                localY = innerLimit;
                 hitY = true;
             }
 
-            // Kuvvet vektörü ekle
-            if (hitX) totalFx += dirX * force;
-            if (hitY) totalFy += dirY * force;
+            if (hitX || hitY) {
+                // STEP 4: Lokal uzaydaki kuvvet vektörü
+                const localFx = hitX ? localDirX * force : 0;
+                const localFy = hitY ? localDirY * force : 0;
+
+                // STEP 5: Clamped pozisyonu ve kuvveti world'e geri döndür (+angle)
+                p.x = cx + localX * cosB - localY * sinB;
+                p.y = cy + localX * sinB + localY * cosB;
+
+                // Kuvveti world uzayına döndür
+                totalFx += localFx * cosB - localFy * sinB;
+                totalFy += localFx * sinB + localFy * cosB;
+            }
         }
 
-        // Toplam kuvveti küpe uygula
+        // STEP 6: Toplam kuvveti küpe uygula
         if (totalFx !== 0 || totalFy !== 0) {
             this.cube.applyForce(totalFx, totalFy);
         }

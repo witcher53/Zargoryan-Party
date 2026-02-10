@@ -110,19 +110,25 @@ export function drawGame(ctx, canvas, socket) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
 
-    // === DİNAMİK KAMERA ===
-    const camTargetX = (cube && Number.isFinite(cube.x)) ? cube.x : 1000;
-    const camTargetY = (cube && Number.isFinite(cube.y)) ? cube.y : 1000;
+    // === DİNAMİK KAMERA: OYUNCU TAKİBİ + LOOK-AHEAD ===
+    const playerX = Number.isFinite(mp.x) ? mp.x : (cube ? cube.x : 1000);
+    const playerY = Number.isFinite(mp.y) ? mp.y : (cube ? cube.y : 1000);
+    const playerVx = Number.isFinite(mp.vx) ? mp.vx : 0;
+    const playerVy = Number.isFinite(mp.vy) ? mp.vy : 0;
 
-    // Mouse wheel zoom: state.camera.targetZoom kullan
+    // Look-ahead: Hıza göre kamerayı ileri kaydır
+    const camTargetX = playerX + playerVx * 20;
+    const camTargetY = playerY + playerVy * 20;
+
+    // Mouse wheel zoom
     const cam = state.camera;
-    const zoomTarget = cam.targetZoom;
+    const zoomTarget = cam ? cam.targetZoom : 0.8;
 
     // Smooth kamera
     smoothCamX = lerp(smoothCamX, camTargetX, 0.08);
     smoothCamY = lerp(smoothCamY, camTargetY, 0.08);
-    smoothZoom = lerp(smoothZoom, zoomTarget, 0.1); // 0.05 → 0.1 daha responsive
-    cam.zoom = smoothZoom; // HUD için geri yaz
+    smoothZoom = lerp(smoothZoom, zoomTarget, 0.1);
+    if (cam) cam.zoom = smoothZoom;
 
     const zoom = smoothZoom;
     const offsetX = (canvas.width / 2) - (smoothCamX * zoom);
